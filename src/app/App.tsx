@@ -6,7 +6,7 @@ import './App.css'
 function App() {
   return (
     <>
-    <Header/>
+    <Header title='Undervalued Stocks Finder'/>
     <Main>
       <Home/>
       </Main>
