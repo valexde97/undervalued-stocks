@@ -23,7 +23,8 @@ export const Home = () => {
 
   return (
     <>
-      <h2>Welcome!</h2>
+      <h2>Welcome, to Demo version of my InvApp!</h2>
+      <p>Here you can see in live-time how i will be developing my new project.</p>
       <p>Click the button below to search for undervalued stocks.</p>
       <PrimaryButton text="Find Undervalued Stocks" onClick={handleSearch} />
       {stocks.length > 0 && <StockList stocks={stocks} />}
