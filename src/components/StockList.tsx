@@ -1,3 +1,5 @@
+import { StockCard } from "./StockCard";
+
 type Stock = {
   ticker: string;
   name: string;
@@ -9,11 +11,9 @@ type Props = {
 };
 
 export const StockList = ({ stocks }: Props) => (
-  <ul>
+  <div>
     {stocks.map((stock) => (
-      <li key={stock.ticker}>
-        <strong>{stock.ticker}</strong>: {stock.name} — ${stock.price}
-      </li>
+     <StockCard key={stock.ticker} stock={stock} />
     ))}
-  </ul>
+ </div>
 );
