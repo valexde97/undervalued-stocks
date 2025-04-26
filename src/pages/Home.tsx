@@ -3,6 +3,9 @@ import { StockList } from "../components/StockList";
 import { FilterPanel } from "../components/FilterPanel";
 import { useRef } from "react";
 import { FormikProps } from "formik";
+import Skeleton from "react-loading-skeleton";
+import "react-loading-skeleton/dist/skeleton.css";
+import { motion } from "framer-motion";
 
 type Stock = {
   ticker: string;
@@ -178,123 +181,163 @@ export const Home = () => {
   };
 
   return (
-    <>
-      <h2>Welcome, to Demo version of my InvApp!</h2>
-      <p>
-        Here you can see in live-time how i will be developing my new project.
-      </p>
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+    >
+      <>
+        <h2>Welcome, to Demo version of my InvApp!</h2>
+        <p>
+          Here you can see in live-time how i will be developing my new project.
+        </p>
 
-      <FilterPanel onFilter={handleFilter} formikRef={formikRef} />
-      
-      <button
-        onClick={() => setFilteredStocks(stocks)}
-        style={{ marginTop: "1rem" }}
-      >
-        Reset Filters
-      </button>
-      {(activeFilters.minPrice ||
-        activeFilters.maxPrice ||
-        activeFilters.category ||
-        activeFilters.sortBy) && (
-        <div style={{ margin: "1rem 0" }}>
-          <h4>Active Filters:</h4>
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-            {activeFilters.minPrice && (
-              <span
-                style={{
-                  backgroundColor: "#f0ad4e",
-                  padding: "5px 10px",
-                  borderRadius: "20px",
-                }}
-              >
-                Min Price: {activeFilters.minPrice}$
-                <button
-                  onClick={resetMinPrice}
+        <FilterPanel onFilter={handleFilter} formikRef={formikRef} />
+
+        <button
+          onClick={() => setFilteredStocks(stocks)}
+          style={{ marginTop: "1rem" }}
+        >
+          Reset Filters
+        </button>
+        {(activeFilters.minPrice ||
+          activeFilters.maxPrice ||
+          activeFilters.category ||
+          activeFilters.sortBy) && (
+          <div style={{ margin: "1rem 0" }}>
+            <h4>Active Filters:</h4>
+            <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+              {activeFilters.minPrice && (
+                <span
                   style={{
-                    marginLeft: "5px",
-                    border: "none",
-                    background: "transparent",
-                    color: "white",
-                    cursor: "pointer",
+                    backgroundColor: "#f0ad4e",
+                    padding: "5px 10px",
+                    borderRadius: "20px",
                   }}
                 >
-                  ❌
-                </button>
-              </span>
-            )}
-            {activeFilters.maxPrice && (
-              <span
-                style={{
-                  backgroundColor: "#5bc0de",
-                  padding: "5px 10px",
-                  borderRadius: "20px",
-                }}
-              >
-                Max Price: {activeFilters.maxPrice}$
-                <button
-                  onClick={resetMaxPrice}
+                  Min Price: {activeFilters.minPrice}$
+                  <button
+                    onClick={resetMinPrice}
+                    style={{
+                      marginLeft: "5px",
+                      border: "none",
+                      background: "transparent",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ❌
+                  </button>
+                </span>
+              )}
+              {activeFilters.maxPrice && (
+                <span
                   style={{
-                    marginLeft: "5px",
-                    border: "none",
-                    background: "transparent",
-                    color: "white",
-                    cursor: "pointer",
+                    backgroundColor: "#5bc0de",
+                    padding: "5px 10px",
+                    borderRadius: "20px",
                   }}
                 >
-                  ❌
-                </button>
-              </span>
-            )}
-            {activeFilters.category && (
-              <span
-                style={{
-                  backgroundColor: "#5cb85c",
-                  padding: "5px 10px",
-                  borderRadius: "20px",
-                }}
-              >
-                Category: {activeFilters.category}
-                <button
-                  onClick={resetCategory}
+                  Max Price: {activeFilters.maxPrice}$
+                  <button
+                    onClick={resetMaxPrice}
+                    style={{
+                      marginLeft: "5px",
+                      border: "none",
+                      background: "transparent",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ❌
+                  </button>
+                </span>
+              )}
+              {activeFilters.category && (
+                <span
                   style={{
-                    marginLeft: "5px",
-                    border: "none",
-                    background: "transparent",
-                    color: "white",
-                    cursor: "pointer",
+                    backgroundColor: "#5cb85c",
+                    padding: "5px 10px",
+                    borderRadius: "20px",
                   }}
                 >
-                  ❌
-                </button>
-              </span>
-            )}
-            {activeFilters.sortBy && (
-              <span
-                style={{
-                  backgroundColor: "#d9534f",
-                  padding: "5px 10px",
-                  borderRadius: "20px",
-                }}
-              >
-                Sort By: {activeFilters.sortBy}
-                <button
-                  onClick={resetSortBy}
+                  Category: {activeFilters.category}
+                  <button
+                    onClick={resetCategory}
+                    style={{
+                      marginLeft: "5px",
+                      border: "none",
+                      background: "transparent",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ❌
+                  </button>
+                </span>
+              )}
+              {activeFilters.sortBy && (
+                <span
                   style={{
-                    marginLeft: "5px",
-                    border: "none",
-                    background: "transparent",
-                    color: "white",
-                    cursor: "pointer",
+                    backgroundColor: "#d9534f",
+                    padding: "5px 10px",
+                    borderRadius: "20px",
                   }}
                 >
-                  ❌
-                </button>
-              </span>
-            )}
+                  Sort By: {activeFilters.sortBy}
+                  <button
+                    onClick={resetSortBy}
+                    style={{
+                      marginLeft: "5px",
+                      border: "none",
+                      background: "transparent",
+                      color: "white",
+                      cursor: "pointer",
+                    }}
+                  >
+                    ❌
+                  </button>
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
-      {IsLoading ? <p>Loading...</p> : <StockList stocks={filteredStocks} />}
-    </>
+        )}
+        {IsLoading ? (
+          <div>
+            {Array.from({ length: 5 }).map((_, index) => (
+              <div
+                key={index}
+                style={{
+                  border: "1px solid #ccc",
+                  padding: "1rem",
+                  marginBottom: "1rem",
+                  borderRadius: "8px",
+                  backgroundColor: "#fff",
+                }}
+              >
+                <Skeleton height={30} width={200} />
+                <Skeleton
+                  height={20}
+                  width={100}
+                  style={{ marginTop: "0.5rem" }}
+                />
+                <Skeleton
+                  height={20}
+                  width={150}
+                  style={{ marginTop: "0.5rem" }}
+                />
+                <Skeleton
+                  height={35}
+                  width={120}
+                  style={{ marginTop: "1rem" }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <StockList stocks={filteredStocks} />
+        )}
+      </>
+    </motion.div>
   );
 };

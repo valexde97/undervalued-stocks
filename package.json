@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "formik": "^2.4.6",
+    "framer-motion": "^12.9.2",
     "gh-pages": "^6.3.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "react-loading-skeleton": "^3.5.0",
     "react-router-dom": "^7.5.2",
     "yup": "^1.6.1"
   },
