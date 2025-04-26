@@ -1,5 +1,3 @@
-import React from 'react'
-
 export const Favorites = () => (
     <div>
       <h2>Favorites</h2>
