@@ -1,0 +1,34 @@
+.panel {
+  padding: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 12px;
+  background: var(--card-bg);
+}
+
+.formField {
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+}
+
+.errorMessage {
+  color: #ff4d4f;
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.applyButton {
+  margin-top: 1rem;
+  background-color: var(--primary);
+  color: var(--text-light);
+  padding: 0.7rem 1.2rem;
+  border: none;
+  border-radius: 8px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.applyButton:hover {
+  background-color: var(--primary-hover);
+}

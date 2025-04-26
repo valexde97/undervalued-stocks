@@ -1,5 +1,6 @@
-import { Formik, Form, Field, ErrorMessage, FormikProps  } from "formik";
+import { Formik, Form, Field, ErrorMessage, FormikProps } from "formik";
 import * as Yup from "yup";
+import styles from "./FilterPanel.module.css";
 
 type FilterValues = {
   minPrice: number | "";
@@ -10,19 +11,20 @@ type FilterValues = {
 
 type FilterPanelProps = {
   onFilter: (values: FilterValues) => void;
-  formikRef: React.RefObject<FormikProps<FilterValues> | null>; 
+  formikRef: React.RefObject<FormikProps<FilterValues> | null>;
 };
+
 export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
   const initialValues: FilterValues = {
-    minPrice: '',
-    maxPrice: '',
-    category: '',
-    sortBy: '',
+    minPrice: "",
+    maxPrice: "",
+    category: "",
+    sortBy: "",
   };
 
   const validationSchema = Yup.object({
-    minPrice: Yup.number().positive('Must be positive').nullable(),
-    maxPrice: Yup.number().positive('Must be positive').nullable(),
+    minPrice: Yup.number().positive("Must be positive").nullable(),
+    maxPrice: Yup.number().positive("Must be positive").nullable(),
     category: Yup.string(),
     sortBy: Yup.string(),
   });
@@ -32,8 +34,8 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
   };
 
   return (
-    <div style={{ padding: "1rem", border: "1px solid #ccc", borderRadius: "8px", margin: "1rem 0" }}>
-      <h3>Filter Stocks</h3>
+    <div className={styles.panel}>
+      <h3 className={styles.panelTitle}>🔍 Filter Stocks</h3>
       <Formik
         innerRef={formikRef}
         initialValues={initialValues}
@@ -41,7 +43,7 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
         onSubmit={onSubmit}
       >
         <Form>
-          <div>
+          <div className={styles.formField}>
             <label>Sort By: </label>
             <Field name="sortBy" as="select">
               <option value="">None</option>
@@ -52,19 +54,27 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
             </Field>
           </div>
 
-          <div>
+          <div className={styles.formField}>
             <label>Min Price: </label>
             <Field name="minPrice" type="number" />
-            <ErrorMessage name="minPrice">{(msg) => <div style={{ color: "red" }}>{msg}</div>}</ErrorMessage>
+            <ErrorMessage
+              name="minPrice"
+              component="div"
+              className={styles.errorMessage}
+            />
           </div>
 
-          <div>
+          <div className={styles.formField}>
             <label>Max Price: </label>
             <Field name="maxPrice" type="number" />
-            <ErrorMessage name="maxPrice">{(msg) => <div style={{ color: "red" }}>{msg}</div>}</ErrorMessage>
+            <ErrorMessage
+              name="maxPrice"
+              component="div"
+              className={styles.errorMessage}
+            />
           </div>
 
-          <div>
+          <div className={styles.formField}>
             <label>Category: </label>
             <Field name="category" as="select">
               <option value="">Select</option>
@@ -72,10 +82,14 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
               <option value="mid">Mid Cap</option>
               <option value="large">Large Cap</option>
             </Field>
-            <ErrorMessage name="category">{(msg) => <div style={{ color: "red" }}>{msg}</div>}</ErrorMessage>
+            <ErrorMessage
+              name="category"
+              component="div"
+              className={styles.errorMessage}
+            />
           </div>
 
-          <button type="submit" style={{ marginTop: "1rem" }}>
+          <button type="submit" className={styles.applyButton}>
             Apply Filter
           </button>
         </Form>

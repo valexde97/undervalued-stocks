@@ -1,5 +1,7 @@
+import styles from "./Footer.module.css";
+
 export const Footer = () => (
-  <footer style={{ padding: '1rem', backgroundColor: '#333', color: '#fff', textAlign: 'center' }}>
+  <footer className={styles.footer}>
     <p>&copy; {new Date().getFullYear()} Valex Finance</p>
   </footer>
 );

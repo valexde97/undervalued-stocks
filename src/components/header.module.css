@@ -1,0 +1,22 @@
+.header {
+  padding: 1rem;
+  background-color: var(--primary-dark);
+  color: var(--text-light);
+  text-align: center;
+}
+
+.nav {
+  margin-top: 1rem;
+}
+
+.link {
+  color: var(--text-light);
+  margin-right: 1rem;
+  text-decoration: none;
+  transition: color 0.3s, text-decoration 0.3s;
+}
+
+.link:hover {
+  color: var(--primary-light);
+  text-decoration: underline;
+}

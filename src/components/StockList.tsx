@@ -1,6 +1,6 @@
 import { StockCard } from "./StockCard";
 import { motion } from "framer-motion";
-
+import styles from './stockList.module.css';
 
 type Stock = {
   ticker: string;
@@ -15,20 +15,19 @@ type Props = {
 };
 
 export const StockList = ({ stocks }: Props) => (
-  <div>
+  <div className={styles.grid}>
     {stocks.map((stock, index) => (
-      <motion.div 
+      <motion.div
         key={stock.ticker}
-        initial={{ opacity: 0, y: 20 }}
+        initial={{ opacity: 0, y: 30 }}
         animate={{ opacity: 1, y: 0 }}
-        whileHover={{ scale: 1.02 }}
         transition={{
           type: "spring",
-          stiffness: 80, 
-          damping: 15,  
-          delay: index * 0.1, 
+          stiffness: 70,
+          damping: 12,
+          delay: index * 0.1,
         }}
-        style={{ marginBottom: "1rem" }}
+        className={styles.cardContainer}
       >
         <StockCard stock={stock} />
       </motion.div>
