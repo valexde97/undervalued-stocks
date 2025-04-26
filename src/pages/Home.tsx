@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { StockList } from "../components/StockList";
 import { FilterPanel } from "../components/FilterPanel";
+import { useRef } from "react";
+import { FormikProps } from "formik";
 
 type Stock = {
   ticker: string;
@@ -18,6 +20,7 @@ type FilterValues = {
 };
 
 export const Home = () => {
+  const formikRef = useRef<FormikProps<FilterValues>>(null);
   const [stocks, setStocks] = useState<Stock[]>([]);
   const [filteredStocks, setFilteredStocks] = useState<Stock[]>([]);
   const [IsLoading, setIsLoading] = useState<boolean>(true);
@@ -140,14 +143,38 @@ export const Home = () => {
       result.sort((a, b) => a.price - b.price);
     } else if (filters.sortBy === "priceDesc") {
       result.sort((a, b) => b.price - a.price);
-    } else if (filters.sortBy === "newest") {
-      result.sort((a, b) => b.listedAt.getTime() - a.listedAt.getTime());
-    } else if (filters.sortBy === "oldest") {
-      result.sort((a, b) => a.listedAt.getTime() - b.listedAt.getTime());
+    } else if (filters.sortBy === "nameAsc") {
+      result.sort((a, b) => a.name.localeCompare(b.name));
+    } else if (filters.sortBy === "nameDesc") {
+      result.sort((a, b) => b.name.localeCompare(a.name));
     }
 
     setFilteredStocks(result);
     setActiveFilters(filters);
+  };
+
+  const resetMinPrice = () => {
+    const newFilters: FilterValues = { ...activeFilters, minPrice: "" };
+    handleFilter(newFilters);
+    formikRef.current?.setFieldValue("minPrice", "");
+  };
+
+  const resetMaxPrice = () => {
+    const newFilters: FilterValues = { ...activeFilters, maxPrice: "" };
+    handleFilter(newFilters);
+    formikRef.current?.setFieldValue("maxPrice", "");
+  };
+
+  const resetCategory = () => {
+    const newFilters: FilterValues = { ...activeFilters, category: "" };
+    handleFilter(newFilters);
+    formikRef.current?.setFieldValue("category", "");
+  };
+
+  const resetSortBy = () => {
+    const newFilters: FilterValues = { ...activeFilters, sortBy: "" };
+    handleFilter(newFilters);
+    formikRef.current?.setFieldValue("sortBy", "");
   };
 
   return (
@@ -157,41 +184,116 @@ export const Home = () => {
         Here you can see in live-time how i will be developing my new project.
       </p>
 
-      <FilterPanel onFilter={handleFilter} />
+      <FilterPanel onFilter={handleFilter} formikRef={formikRef} />
+      
       <button
         onClick={() => setFilteredStocks(stocks)}
         style={{ marginTop: "1rem" }}
       >
         Reset Filters
       </button>
-      {(activeFilters.minPrice || activeFilters.maxPrice || activeFilters.category || activeFilters.sortBy) && (
-  <div style={{ margin: '1rem 0' }}>
-    <h4>Active Filters:</h4>
-    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-      {activeFilters.minPrice && (
-        <span style={{ backgroundColor: '#5cb85c', padding: '5px 10px', borderRadius: '20px' }}>
-          Min Price: {activeFilters.minPrice}$
-        </span>
+      {(activeFilters.minPrice ||
+        activeFilters.maxPrice ||
+        activeFilters.category ||
+        activeFilters.sortBy) && (
+        <div style={{ margin: "1rem 0" }}>
+          <h4>Active Filters:</h4>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+            {activeFilters.minPrice && (
+              <span
+                style={{
+                  backgroundColor: "#f0ad4e",
+                  padding: "5px 10px",
+                  borderRadius: "20px",
+                }}
+              >
+                Min Price: {activeFilters.minPrice}$
+                <button
+                  onClick={resetMinPrice}
+                  style={{
+                    marginLeft: "5px",
+                    border: "none",
+                    background: "transparent",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  ❌
+                </button>
+              </span>
+            )}
+            {activeFilters.maxPrice && (
+              <span
+                style={{
+                  backgroundColor: "#5bc0de",
+                  padding: "5px 10px",
+                  borderRadius: "20px",
+                }}
+              >
+                Max Price: {activeFilters.maxPrice}$
+                <button
+                  onClick={resetMaxPrice}
+                  style={{
+                    marginLeft: "5px",
+                    border: "none",
+                    background: "transparent",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  ❌
+                </button>
+              </span>
+            )}
+            {activeFilters.category && (
+              <span
+                style={{
+                  backgroundColor: "#5cb85c",
+                  padding: "5px 10px",
+                  borderRadius: "20px",
+                }}
+              >
+                Category: {activeFilters.category}
+                <button
+                  onClick={resetCategory}
+                  style={{
+                    marginLeft: "5px",
+                    border: "none",
+                    background: "transparent",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  ❌
+                </button>
+              </span>
+            )}
+            {activeFilters.sortBy && (
+              <span
+                style={{
+                  backgroundColor: "#d9534f",
+                  padding: "5px 10px",
+                  borderRadius: "20px",
+                }}
+              >
+                Sort By: {activeFilters.sortBy}
+                <button
+                  onClick={resetSortBy}
+                  style={{
+                    marginLeft: "5px",
+                    border: "none",
+                    background: "transparent",
+                    color: "white",
+                    cursor: "pointer",
+                  }}
+                >
+                  ❌
+                </button>
+              </span>
+            )}
+          </div>
+        </div>
       )}
-      {activeFilters.maxPrice && (
-        <span style={{ backgroundColor: '#d9534f', padding: '5px 10px', borderRadius: '20px' }}>
-          Max Price: {activeFilters.maxPrice}$
-        </span>
-      )}
-      {activeFilters.category && (
-        <span style={{ backgroundColor: '#f0ad4e', padding: '5px 10px', borderRadius: '20px' }}>
-          Category: {activeFilters.category}
-        </span>
-      )}
-      {activeFilters.sortBy && (
-        <span style={{ backgroundColor: '#5bc0de' , padding: '5px 10px', borderRadius: '20px' }}>
-          Sort By: {activeFilters.sortBy}
-        </span>
-      )}
-    </div>
-  </div>
-)}
-
       {IsLoading ? <p>Loading...</p> : <StockList stocks={filteredStocks} />}
     </>
   );
