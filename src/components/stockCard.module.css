@@ -2,9 +2,16 @@
   background-color: var(--card-bg);
   color: var(--text-light);
   border: 1px solid var(--border);
-  padding: 1rem;
-  border-radius: 12px;
+  padding: 1.5rem;
+  border-radius: 16px;
   text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+  transform: scale(1.03);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
 }
 
 .card h3 {
@@ -18,15 +25,48 @@
 
 .viewButton {
   margin-top: 1rem;
-  padding: 0.5rem 1rem;
+  padding: 0.6rem 1.2rem;
   background-color: var(--primary);
   color: white;
   border: none;
-  border-radius: 8px;
+  border-radius: 10px;
+  font-weight: 500;
   cursor: pointer;
-  transition: background-color 0.3s;
+  transition: background-color 0.3s ease, transform 0.1s ease;
 }
 
 .viewButton:hover {
   background-color: var(--primary-hover);
+}
+
+.favoriteButton {
+  background: none;
+  border: none;
+  font-size: 1.2rem;
+  cursor: pointer;
+  color: gold;
+  transition: transform 0.2s ease;
+  margin-bottom: 0.5rem;
+}
+
+.favoriteButton:hover {
+  transform: scale(1.2) rotate(10deg);
+}
+.favoriteButton.inactive {
+  color: #ccc;
+}
+
+.info {
+  font-size: 0.9rem;
+  color: var(--text-light);
+}
+
+@media (max-width: 600px) {
+  .card {
+    padding: 1rem;
+  }
+
+  .viewButton {
+    padding: 0.5rem 1rem;
+  }
 }

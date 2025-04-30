@@ -10,7 +10,6 @@ type Stock = {
   listedAt: Date;
 };
 
-
 const allStocks: Stock[] = [
   { ticker: "AAPL", name: "Apple Inc.", price: 155, category: "large", listedAt: new Date("1980-12-12") },
   { ticker: "TSLA", name: "Tesla Inc.", price: 720, category: "large", listedAt: new Date("2010-06-29") },
@@ -24,20 +23,24 @@ const allStocks: Stock[] = [
   { ticker: "ABNB", name: "Airbnb Inc.", price: 140, category: "mid", listedAt: new Date("2020-12-10") },
 ];
 
-
 export const Favorites = () => {
-  const { favorites } = useFavorites();
+  const { favorites, clearFavorites } = useFavorites();
   const favoriteStocks = allStocks.filter((stock) => favorites.includes(stock.ticker));
-  console.log(favorites)
-  return(
-    
+
+  return (
     <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    style={{ padding: "2rem" }}
-  >
-    <h2>Your Favorites ⭐</h2>
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      style={{ padding: "2rem" }}
+    >
+      <h2>Your Favorites ⭐</h2>
+      {favoriteStocks.length > 0 && (
+        <button onClick={clearFavorites} style={{ marginBottom: "1rem" }}>
+          🧹 Clear Favorites
+        </button>
+      )}
+
       {favoriteStocks.length > 0 ? (
         <div style={{ display: "flex", flexWrap: "wrap", gap: "1rem" }}>
           {favoriteStocks.map((stock) => (
@@ -47,6 +50,6 @@ export const Favorites = () => {
       ) : (
         <p>No favorites yet. Add some!</p>
       )}
-   </motion.div>
+    </motion.div>
   );
 };

@@ -65,3 +65,11 @@
   background: var(--primary);
   color: white;
 }
+.logoLink {
+  text-decoration: none;
+}
+
+.logoLink:hover {
+  text-decoration: none;
+}
+
