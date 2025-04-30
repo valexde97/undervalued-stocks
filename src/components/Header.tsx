@@ -1,47 +1,36 @@
 import { Link } from "react-router-dom";
 import styles from "./Header.module.css";
+import { useTheme } from "./ThemeContext";
+import { useLanguage } from "./LanguageContext";
 
-interface HeaderProps {
-  theme: "light" | "dark";
-  toggleTheme: () => void;
-}
+const Header = () => {
+  const { theme, toggleTheme } = useTheme();
+  const { language, toggleLanguage } = useLanguage();
 
-function Header({ theme, toggleTheme }: HeaderProps) {
   return (
-    <header
-      className={`${theme === "light" ? "bg-white" : "bg-gray-900"} shadow-md`}
-      style={{ padding: "1rem" }}
-    >
-      <div className="container mx-auto flex justify-between items-center">
-        {/* Левый блок: название */}
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold text-blue-600">InvAPI</h1>
-          <h2 className="text-sm text-gray-500">(Coming soon...)</h2>
+    <header className={styles.header}>
+      <div className={styles.container}>
+        <div className={styles.logoBlock}>
+          <h1 className={styles.logo}>InvAPI</h1>
+          <h2 className={styles.subtitle}>(Coming soon...)</h2>
         </div>
-
-        {/* Центральная навигация */}
-        <nav className="flex gap-6 text-lg">
-          <Link to="/" className={styles.link}>
-            Home
-          </Link>
-          <Link to="/favorites" className={styles.link}>
-            Favorites
-          </Link>
-          <Link to="/about" className={styles.link}>
-            About
-          </Link>
+        
+        <nav className={styles.nav}>
+          <Link to="/" className={styles.link}>Home</Link>
+          <Link to="/favorites" className={styles.link}>Favorites</Link>
+          <Link to="/about" className={styles.link}>About</Link>
         </nav>
 
-        {/* Правая часть: переключение темы */}
-        <button
-          onClick={toggleTheme}
-          className="ml-4 px-4 py-2 rounded bg-blue-500 text-white hover:bg-blue-600 transition-colors"
-        >
-          {theme === "light" ? "🌙 Dark Mode" : "☀️ Light Mode"}
-        </button>
+        <div className={styles.actions}>
+          <button onClick={toggleTheme} className={styles.button}>
+            {theme === "light" ? "🌙" : "☀️"}
+          </button>
+          <button onClick={toggleLanguage} className={styles.button}>
+            {language === "en" ? "🇩🇪 DE" : "🇬🇧 EN"}
+          </button>
+        </div>
       </div>
     </header>
   );
-}
-
+};
 export default Header;
