@@ -41,6 +41,7 @@
     "ticker": "Kürzel",
     "price": "Preis",
     "category": "Kategorie",
+    "namePlaceholder": "Platzhalter für Firmennamen",
     "listedAt": "Börsengang",
     "chart": "Kursverlauf",
     "chartPlaceholder": "Diagramm wird hier angezeigt",

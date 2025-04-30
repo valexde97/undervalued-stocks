@@ -45,6 +45,7 @@
       "category": "Category",
       "listedAt": "Listed At",
       "chart": "Price Chart",
+      "namePlaceholder": "Company Name Placeholder",
       "chartPlaceholder": "Chart will be here",
       "about": "About the Company",
       "description": "This is a placeholder description for the company. In the future, it will be replaced by real API data."

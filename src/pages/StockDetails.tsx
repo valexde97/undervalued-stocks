@@ -6,6 +6,7 @@ import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import styles from './StockDetails.module.css';
 
+
 export const StockDetails = () => {
   const { t } = useTranslation();
   const { ticker } = useParams<{ ticker: string }>();
@@ -34,9 +35,13 @@ export const StockDetails = () => {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
     >
-      <h2 className={styles.title}>
-        {isLoading ? <Skeleton width={300} /> : `${dummyData.name} (${ticker})`}
-      </h2>
+     <h2 className={styles.title}>
+  {isLoading ? (
+    <Skeleton width={300} />
+  ) : (
+    `${t("stockDetails.namePlaceholder")} (${ticker})`
+  )}
+</h2>
 
       <div className={styles.grid}>
         <div className={styles.infoCard}>
