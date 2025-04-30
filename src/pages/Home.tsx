@@ -86,9 +86,7 @@ export const Home = () => {
     >
       <div className={styles.container}>
         <div className={styles.mainContent}>
-          <h2>Welcome to InvApp</h2>
-          <p>Discover undervalued stocks based on Peter Lynch's strategy.</p>
-          
+         
           {IsLoading ? (
             <Skeleton count={5} height={150} style={{ marginBottom: "1rem" }} />
           ) : (

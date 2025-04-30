@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useFavorites } from "./FavoritesContext";
 import { StockCard } from "../components/StockCard";
+import { useTranslation } from "react-i18next";
 
 type Stock = {
   ticker: string;
@@ -23,9 +24,10 @@ const allStocks: Stock[] = [
   { ticker: "ABNB", name: "Airbnb Inc.", price: 140, category: "mid", listedAt: new Date("2020-12-10") },
 ];
 
-export const Favorites = () => {
+const Favorites = () => {
   const { favorites, clearFavorites } = useFavorites();
   const favoriteStocks = allStocks.filter((stock) => favorites.includes(stock.ticker));
+  const { t } = useTranslation();
 
   return (
     <motion.div
@@ -34,10 +36,10 @@ export const Favorites = () => {
       exit={{ opacity: 0 }}
       style={{ padding: "2rem" }}
     >
-      <h2>Your Favorites ⭐</h2>
+      <h2> {t("yourFavorites")}</h2>
       {favoriteStocks.length > 0 && (
         <button onClick={clearFavorites} style={{ marginBottom: "1rem" }}>
-          🧹 Clear Favorites
+           🧹 {t("clearFavorites")}
         </button>
       )}
 
@@ -48,8 +50,10 @@ export const Favorites = () => {
           ))}
         </div>
       ) : (
-        <p>No favorites yet. Add some!</p>
+        <p>{t("noFavorites")}</p>
       )}
     </motion.div>
   );
 };
+
+export default Favorites;

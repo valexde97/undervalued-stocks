@@ -17,16 +17,21 @@ export const useFavorites = () => {
 };
 
 export const FavoritesProvider = ({ children }: { children: ReactNode }) => {
-  const [favorites, setFavorites] = useState<string[]>(() => {
-    try {
-      const stored = localStorage.getItem("favorites");
-      const parsed = stored ? JSON.parse(stored) : [];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+  const [favorites, setFavorites] = useState<string[]>([]);
+
+  useEffect(() => {
+    const stored = localStorage.getItem("favorites");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          setFavorites(parsed);
+        }
+      } catch (e) {
+        console.error("Failed to parse favorites from localStorage", e);
+      }
     }
-  });
-  
+  }, []);
 
   useEffect(() => {
     localStorage.setItem("favorites", JSON.stringify(favorites));

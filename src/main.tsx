@@ -1,3 +1,4 @@
+import './i18n'; 
 import { StrictMode } from 'react'
 import './index.css'
 import App from './app/App.tsx'

@@ -19,16 +19,25 @@
 
 .applyButton {
   margin-top: 1rem;
-  background-color: var(--primary);
-  color: var(--text-light);
-  padding: 0.7rem 1.2rem;
+  padding: 0.5rem 1.2rem;
   border: none;
   border-radius: 8px;
-  font-weight: bold;
+  font-weight: 500;
+  background-color: var(--primary);
+  color: white;
   cursor: pointer;
   transition: background-color 0.3s ease;
 }
 
 .applyButton:hover {
   background-color: var(--primary-hover);
+}
+
+:root.light .applyButton {
+  background-color: #2563eb; 
+  color: #fff;
+}
+
+:root.light .applyButton:hover {
+  background-color: #1d4ed8; 
 }

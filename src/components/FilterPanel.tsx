@@ -1,6 +1,7 @@
 import { Formik, Form, Field, ErrorMessage, FormikProps } from "formik";
 import * as Yup from "yup";
-import styles from "./FilterPanel.module.css";
+import styles from "./filterPanel.module.css";
+import { useTranslation } from "react-i18next";
 
 type FilterValues = {
   minPrice: number | "";
@@ -15,6 +16,8 @@ type FilterPanelProps = {
 };
 
 export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
+  const { t } = useTranslation();
+  
   const initialValues: FilterValues = {
     minPrice: "",
     maxPrice: "",
@@ -35,7 +38,7 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
 
   return (
     <div className={styles.panel}>
-      <h3 className={styles.panelTitle}>🔍 Filter Stocks</h3>
+      <h3 className={styles.panelTitle}>{t("filter.title")}</h3>
       <Formik
         innerRef={formikRef}
         initialValues={initialValues}
@@ -44,53 +47,41 @@ export const FilterPanel = ({ onFilter, formikRef }: FilterPanelProps) => {
       >
         <Form>
           <div className={styles.formField}>
-            <label>Sort By: </label>
+            <label>{t("filter.sortBy")}:</label>
             <Field name="sortBy" as="select">
-              <option value="">None</option>
-              <option value="priceAsc">Price (Low to High)</option>
-              <option value="priceDesc">Price (High to Low)</option>
-              <option value="nameAsc">Name (A to Z)</option>
-              <option value="nameDesc">Name (Z to A)</option>
+              <option value="">{t("filter.none")}</option>
+              <option value="priceAsc">{t("filter.priceAsc")}</option>
+              <option value="priceDesc">{t("filter.priceDesc")}</option>
+              <option value="nameAsc">{t("filter.nameAsc")}</option>
+              <option value="nameDesc">{t("filter.nameDesc")}</option>
             </Field>
           </div>
 
           <div className={styles.formField}>
-            <label>Min Price: </label>
+            <label>{t("filter.minPrice")}:</label>
             <Field name="minPrice" type="number" />
-            <ErrorMessage
-              name="minPrice"
-              component="div"
-              className={styles.errorMessage}
-            />
+            <ErrorMessage name="minPrice" component="div" className={styles.errorMessage} />
           </div>
 
           <div className={styles.formField}>
-            <label>Max Price: </label>
+            <label>{t("filter.maxPrice")}:</label>
             <Field name="maxPrice" type="number" />
-            <ErrorMessage
-              name="maxPrice"
-              component="div"
-              className={styles.errorMessage}
-            />
+            <ErrorMessage name="maxPrice" component="div" className={styles.errorMessage} />
           </div>
 
           <div className={styles.formField}>
-            <label>Category: </label>
+            <label>{t("filter.category")}:</label>
             <Field name="category" as="select">
-              <option value="">Select</option>
-              <option value="small">Small Cap</option>
-              <option value="mid">Mid Cap</option>
-              <option value="large">Large Cap</option>
+              <option value="">{t("filter.select")}</option>
+              <option value="small">{t("filter.small")}</option>
+              <option value="mid">{t("filter.mid")}</option>
+              <option value="large">{t("filter.large")}</option>
             </Field>
-            <ErrorMessage
-              name="category"
-              component="div"
-              className={styles.errorMessage}
-            />
+            <ErrorMessage name="category" component="div" className={styles.errorMessage} />
           </div>
 
           <button type="submit" className={styles.applyButton}>
-            Apply Filter
+            {t("filter.apply")}
           </button>
         </Form>
       </Formik>
