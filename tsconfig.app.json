@@ -29,6 +29,6 @@
 
     "baseUrl": "."
   },
-  "include": ["src", "api/fh.ts", "api/fh/finviz.ts"],
+  "include": ["src", "api/fh.ts", "api/finviz.ts"],
   "exclude": ["api/**", "node_modules", "dist"]
 }
