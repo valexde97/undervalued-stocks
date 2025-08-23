@@ -1,60 +1,114 @@
-// src/components/NewsMini.tsx
 import { useEffect, useState } from "react";
+import Skeleton from "react-loading-skeleton";
+import styles from "./newsMini.module.css";
 
-type Item = { headline: string; source: string; datetime: number; url: string };
+type RawItem = {
+  headline: string;
+  source: string;
+  datetime: number; // seconds
+  url: string;
+  image?: string;
+};
+
+type Item = {
+  title: string;
+  source: string;
+  time: string;        // "2h ago"
+  url: string;
+  image?: string;
+};
+
+function timeAgo(sec: number) {
+  const ms = sec * 1000;
+  const diff = Date.now() - ms;
+  const m = Math.max(1, Math.round(diff / 60000));
+  if (m < 60) return `${m}m ago`;
+  const h = Math.round(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.round(h / 24);
+  return `${d}d ago`;
+}
 
 export function NewsMini() {
-  const [items, setItems] = useState<Item[]>([]);
+  const [items, setItems] = useState<Item[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/fh/news?category=general`)
-      .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((arr: any[]) => {
-        if (cancelled) return;
-        const top = (arr ?? []).slice(0, 5).map((x) => ({
-          headline: x.headline,
+    fetch("/api/fh/news?category=general")
+      .then(r => {
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        return r.json();
+      })
+      .then((arr: RawItem[]) => {
+        const top = (arr ?? []).slice(0, 6).map(x => ({
+          title: x.headline,
           source: x.source,
-          datetime: x.datetime,
+          time: timeAgo(x.datetime),
           url: x.url,
+          image: x.image && x.image.startsWith("http") ? x.image : undefined,
         }));
         setItems(top);
       })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
+      .catch(e => setErr(String(e)));
   }, []);
+
+  if (err) return null;
+  if (!items) {
+    // лоадер (3–4 строки), чтобы не прыгала верстка
+    return (
+      <div className={styles.wrap}>
+        <div className={styles.header}>Latest investing news</div>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className={styles.item} style={{ pointerEvents: "none" }}>
+            <div className={styles.thumb}><Skeleton width={60} height={60} /></div>
+            <div className={styles.text}>
+              <div className={styles.title}><Skeleton height={16} /></div>
+              <div className={styles.meta}><Skeleton width={120} height={12} /></div>
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   if (items.length === 0) return null;
 
   return (
-    <div
-      style={{
-        display: "grid",
-        gap: 6,
-        maxWidth: 560,
-        background: "var(--card-bg)",
-        border: "1px solid var(--border)",
-        borderRadius: 12,
-        padding: 12,
-      }}
-    >
-      <div style={{ opacity: 0.85, fontWeight: 600, marginBottom: 4 }}>
-        Latest investing news
-      </div>
+    <div className={styles.wrap}>
+      <div className={styles.header}>Latest investing news</div>
       {items.map((it, i) => (
         <a
           key={i}
           href={it.url}
           target="_blank"
           rel="noreferrer"
-          style={{ textDecoration: "none", color: "var(--text-light)", fontSize: 14 }}
+          className={styles.item}
+          aria-label={`${it.title} — ${it.source}`}
         >
-          • {it.headline}
-          <span style={{ opacity: 0.7 }}> — {it.source}</span>
+          <div className={styles.thumb}>
+            {it.image ? (
+              <img
+                src={it.image}
+                alt={it.source}
+                loading="lazy"
+                width={60}
+                height={60}
+              />
+            ) : (
+              <span>{it.source?.[0] ?? "•"}</span>
+            )}
+          </div>
+          <div className={styles.text}>
+            <div className={styles.title}>{it.title}</div>
+            <div className={styles.meta}>
+              <span className={styles.badge}>{it.source}</span>
+              <span>{it.time}</span>
+            </div>
+          </div>
         </a>
       ))}
     </div>
   );
 }
+
+export default NewsMini;
