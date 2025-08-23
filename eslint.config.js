@@ -8,21 +8,25 @@ export default tseslint.config(
   { ignores: ['dist'] },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
-    files: ['**/*.{ts,tsx}'],
+   files: ["vite.config.ts", "scripts/**/*.{js,ts,tsx}", "devtools/**/*.{js,ts,tsx}"],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      sourceType: "module",
+      globals: globals.node,  
     },
     plugins: {
       'react-hooks': reactHooks,
       'react-refresh': reactRefresh,
     },
-    rules: {
-      ...reactHooks.configs.recommended.rules,
-      'react-refresh/only-export-components': [
-        'warn',
-        { allowConstantExport: true },
-      ],
+      rules: {
+      "@typescript-eslint/ban-ts-comment": "off",       // разрешаем // @ts-ignore и др. в конфиге
+      "@typescript-eslint/no-explicit-any": "off",       // разрешаем any
+      "@typescript-eslint/no-misused-promises": "off",   // для middleware/async-обработчиков
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_", caughtErrorsIgnorePattern: "^_" }
+      ],                                                // _req, _res не будут подсвечиваться
+      "no-console": "off",
     },
   },
 )

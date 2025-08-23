@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import styles from "./Header.module.css";
+import styles from "./header.module.css";
 import { useTheme } from "./ThemeContext";
 import { useLanguage } from "./LanguageContext";
 import { useTranslation } from "react-i18next";

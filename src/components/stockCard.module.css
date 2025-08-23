@@ -1,72 +1,109 @@
 .card {
-  background-color: var(--card-bg);
-  color: var(--text-light);
+  position: relative;
+  background: var(--card-bg);
   border: 1px solid var(--border);
-  padding: 1.5rem;
   border-radius: 16px;
-  text-align: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
+  padding: 14px 14px 12px;
+  box-shadow: 0 6px 20px rgba(0,0,0,.18);
+  color: var(--text-light);
 }
 
-.card:hover {
-  transform: scale(1.03);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+/* Кнопка CTA — видна и в светлой теме */
+.viewButton {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in oklab, var(--cta-bg), black 20%);
+  background: var(--cta-bg);
+  color: var(--cta-text);
+  cursor: pointer;
+}
+.viewButton:hover { filter: brightness(1.05); }
+
+/* Иконка избранного — контрастная в light */
+.fav {
+  position: absolute; right: 10px; bottom: 10px;
+  border: none; background: rgba(0,0,0,.08);
+  color: #fbbf24; /* янтарная */
+  border-radius: 8px; padding: 4px 6px; font-size: 16px;
+}
+[data-theme="light"] .fav { background: #f3f4f6; color: #b45309; }
+
+/* кнопка «View details» — вровень, сверху чуть-чуть места */
+.ctaWrap { display: block; margin-top: 10px; }
+
+/* первая строка: Market Cap • Category [badge] — в одну линию */
+.inlineRow {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 8px;
+  font-size: 14px;
+}
+.kv { white-space: nowrap; }
+.k  { opacity: .85; }
+.v  { font-weight: 600; }
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,.18);
+  background: rgba(255,255,255,.06);
+  font-weight: 600;
+  text-transform: capitalize;
 }
 
-.card h3 {
-  margin-bottom: 0.5rem;
-  font-size: 1.25rem;
+
+.metrics {
+  display: grid;
+  gap: 4px;
+  font-size: 14px;
 }
 
-.card p {
-  margin: 0.25rem 0;
-}
+.ctaWrap { margin-top: 10px; }
 
 .viewButton {
-  margin-top: 1rem;
-  padding: 0.6rem 1.2rem;
-  background-color: var(--primary);
-  color: white;
-  border: none;
+  width: 100%;
+  padding: 10px 12px;
   border-radius: 10px;
-  font-weight: 500;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #fff;
   cursor: pointer;
-  transition: background-color 0.3s ease, transform 0.1s ease;
 }
+.viewButton:hover { background-color: var(--primary-hover); }
 
-.viewButton:hover {
-  background-color: var(--primary-hover);
-}
-
-.favoriteButton {
-  background: none;
+/* ⭐ — вниз-вправо, не мешает заголовку */
+.fav {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
   border: none;
-  font-size: 1.2rem;
+  background: rgba(255,255,255,0.06);
+  padding: 4px 6px;
+  border-radius: 8px;
   cursor: pointer;
-  color: gold;
-  transition: transform 0.2s ease;
-  margin-bottom: 0.5rem;
+  font-size: 18px;
+  line-height: 1;
 }
+.inactive { color: #ccc; }
 
-.favoriteButton:hover {
-  transform: scale(1.2) rotate(10deg);
+.card:hover { transform: scale(1.02); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
+
+/* Light theme adjustments */
+:global([data-theme="light"]) .card {
+  background: #ffffff;
+  color: #0f172a;
+  border: 1px solid #e5e7eb;
+  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.06);
 }
-.favoriteButton.inactive {
-  color: #ccc;
+:global([data-theme="light"]) .viewButton {
+  background: #f3f4f6;
+  color: #111827;
+  border-color: #e5e7eb;
 }
-
-.info {
-  font-size: 0.9rem;
-  color: var(--text-light);
-}
-
-@media (max-width: 600px) {
-  .card {
-    padding: 1rem;
-  }
-
-  .viewButton {
-    padding: 0.5rem 1rem;
-  }
+:global([data-theme="light"]) .badge {
+  border-color: #e5e7eb;
+  background: #f8fafc;
+  color: #0f172a;
 }

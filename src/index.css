@@ -1,111 +1,150 @@
+/* ===== базовые переменные, как у тебя ===== */
 :root {
-  
-  --primary: #083d97; 
+  --primary: #083d97;
   --primary-hover: #4338ca;
   --primary-light: #c7d2fe;
   --primary-dark: #1a355f;
-  
-  --card-bg: #212b3c; 
+
+  --background: #182239;
+  --card-bg: #212b3c;
   --border: #475569;
   --text-light: #e2e8f0;
   --text-dark: #162444;
-  --background: #182239;
-  font-family: system-ui, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-  
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #3d3d3d;
-  
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+
+  /* добавил нейтральные токены для кнопок/тени */
+  --cta-bg: #3b82f6;
+  --cta-text: #ffffff;
+  --shadow: 0 10px 24px rgba(2, 6, 23, .18);
 }
 
+/* ===== ссылки ===== */
 a {
   text-decoration: none;
-  color: #fff;
-  transition: all 0.2s ease;
+  color: inherit;
+  transition: color .2s ease, opacity .2s ease;
 }
-a:hover {
-  text-decoration: underline;
-  color: #ccc;
-}
+a:hover { opacity: .85; text-decoration: underline; }
+
+/* ===== светлая тема (как у тебя) — ДОПОЛНИЛ токены ===== */
 .light-theme {
-  background-color:#7899e5;;
-  --background: #f0f0f0;
-  color:#18277d;
+  background-color: #7899e5;
+  --background: #f0f2f7;
   --card-bg: #ffffff;
   --text-light: #162e67;
-  min-height: 100vh;
   --primary: #1c2d4b;
+
+  /* важно для читаемости в лайте */
+  --border: rgba(2, 6, 23, .10);
+  --cta-bg: #2563eb;
+  --cta-text: #ffffff;
 }
 
+/* ===== тёмная тема (как у тебя) — ДОПОЛНИЛ токены ===== */
 .dark-theme {
-  background-color:#182239;;
-  color:#d9ddf3;
+  background-color: #182239;
+  --background: #0f172a;
   --card-bg: #1e293b;
   --text-light: #e2e8f0;
   --primary: #3b82f6;
-  min-height: 100vh;
+
+  --border: rgba(148,163,184,.18);
+  --cta-bg: #3b82f6;
+  --cta-text: #ffffff;
 }
 
-/* index.css */
-
-
-
-
-
-body {
-  background-color: var(--background);
-  color: var(--text-light);
-  transition: all 0.3s ease;
-}
-
-
+/* ===== базовая раскладка ===== */
 body {
   margin: 0;
-  display: flex;
-  place-items: center;
   min-width: 320px;
   min-height: 100vh;
+  display: flex;
+  place-items: center;
+
+  background-color: var(--background);
+  color: var(--text-light);
+  font-family: system-ui, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  transition: background-color .25s ease, color .25s ease;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+h1 { font-size: 3.2em; line-height: 1.1; }
+
+/* ===== поверхности (карточки/панели) — чтобы в лайте не были «призрачными» ===== */
+.panel, .card, .filterCard {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
 }
 
+/* ===== формы ===== */
+input, select, textarea {
+  appearance: none;
+  background: var(--card-bg);
+  color: var(--text-light);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  outline: none;
+  transition: box-shadow .2s ease, border-color .2s ease, background .2s ease, color .2s ease;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+/* ===== кнопки: заметные в обеих темах ===== */
 button {
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  background-color: #222222;
+  padding: 10px 14px;
+  font: inherit;
   cursor: pointer;
-  transition: border-color 0.25s;
+  background-color: var(--cta-bg);
+  color: var(--cta-text);
+  transition: background-color .2s ease, box-shadow .2s ease, transform .02s ease-in;
 }
 button:hover {
-  border-color: #646cff;
+  background-color: color-mix(in srgb, var(--cta-bg) 90%, #000 10%);
 }
-button:focus,
+button:active { transform: translateY(1px); }
 button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
+  outline: none;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--cta-bg) 25%, transparent);
 }
 
+/* ===== спец: кнопки из CSS-modules =====
+   CSS-modules генерит классы вида StockCard_viewButton__abc.
+   Селектор ниже ловит их, не ломая инкапсуляцию. */
+button[class*="viewButton"], a[class*="viewButton"] {
+  background-color: var(--cta-bg) !important;
+  color: var(--cta-text) !important;
+  border: 1px solid transparent !important;
+}
+
+/* звездочка избранного (если это кнопка) — лёгкий контур в лайте */
+button[class*="favoriteButton"] {
+  background: transparent;
+  color: var(--primary);
+  border: 1px solid var(--border);
+}
+button[class*="favoriteButton"]:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent);
+}
+
+/* ===== твой старый блок «на всякий» — оставляю,
+   чтобы не ломать поведение у кого-то с system light ===== */
 @media (prefers-color-scheme: light) {
   :root {
-    color: #bfddf9;
-    background-color: #4d6a97;;
-  }
-  a:hover {
-    color: #747bff;
-  }
-  button {
-    background-color: #f9f9f9;
+    --card-bg: #ffffff;
+    --border: rgba(2, 6, 23, .10);
+    --text-light: #162e67;
+    --cta-bg: #2563eb;
+    --cta-text: #ffffff;
   }
 }

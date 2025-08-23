@@ -7,9 +7,12 @@ import { BrowserRouter } from 'react-router-dom'
 import { FavoritesProvider } from './components/FavoritesContext.tsx'
 import { ThemeProvider } from './components/ThemeContext.tsx'
 import { LanguageProvider } from "./components/LanguageContext.tsx";
+import { Provider } from "react-redux";
+import { store } from "./store";
 
 ReactDom.createRoot(document.getElementById('root')!).render(
   <StrictMode>
+     <Provider store={store}>
     <ThemeProvider>
     <FavoritesProvider>
     <LanguageProvider>
@@ -19,5 +22,6 @@ ReactDom.createRoot(document.getElementById('root')!).render(
     </LanguageProvider>
     </FavoritesProvider>
     </ThemeProvider>
+    </Provider>
   </StrictMode>,
 )
