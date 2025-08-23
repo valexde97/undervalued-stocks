@@ -1,7 +1,7 @@
 import React from "react";
 import type { Stock } from "../types/stock";
 import { StockCard } from "./StockCard";
-import styles from "./StockList.module.css";
+import styles from "./stockList.module.css";
 
 type Props = { stocks: Stock[] };
 

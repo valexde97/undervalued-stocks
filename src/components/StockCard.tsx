@@ -3,7 +3,7 @@ import { motion, useAnimation, useInView } from "framer-motion";
 import { useEffect, useRef } from "react";
 import { useFavorites } from "./FavoritesContext";
 import type { Stock } from "../types/stock";
-import styles from "./StockCard.module.css";
+import styles from "./stockCard.module.css";
 
 type Props = { stock: Stock };
 

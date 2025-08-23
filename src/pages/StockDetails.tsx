@@ -4,7 +4,7 @@ import Skeleton from 'react-loading-skeleton';
 import 'react-loading-skeleton/dist/skeleton.css';
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import styles from './StockDetails.module.css';
+import styles from './stockDetails.module.css';
 
 
 export const StockDetails = () => {
