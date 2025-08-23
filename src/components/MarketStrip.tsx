@@ -5,12 +5,12 @@ type Q = { c:number; pc:number }; // current / prev close
 function useQuote(symbol: string) {
   const [q, setQ] = useState<Q | null>(null);
   useEffect(() => {
-    const token = import.meta.env.VITE_FINNHUB_TOKEN;
-    fetch(`/fh/quote?symbol=${symbol}&token=${token}`)
-      .then(r => r.json())
-      .then(setQ)
-      .catch(() => {});
-  }, [symbol]);
+  fetch(`/api/fh/quote?symbol=${symbol}`)
+    .then(r => r.json())
+    .then(setQ)
+    .catch(() => {});
+}, [symbol]);
+
   const pct = q ? ((q.c - q.pc) / (q.pc || 1)) * 100 : null;
   return { price: q?.c ?? null, pct };
 }

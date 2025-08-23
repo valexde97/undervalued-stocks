@@ -7,7 +7,7 @@ export function NewsMini() {
 
   useEffect(() => {
     const token = import.meta.env.VITE_FINNHUB_TOKEN;
-    fetch(`/fh/news?category=general&token=${token}`)
+fetch(`/api/fh/news?category=general`)
       .then(r => r.json())
       .then((arr: any[]) => {
         const top = (arr ?? []).slice(0, 5).map(x => ({
