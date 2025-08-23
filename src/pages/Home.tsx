@@ -13,8 +13,7 @@ import { bootstrapFromFinviz } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
 import styles from "./home.module.css";
 
-// ⚠️ маленький helper, чтоб TS не ругался за "неиспользуемую" переменную
-const noop = () => {};
+
 
 type FilterValues = {
   minPrice: number | "";

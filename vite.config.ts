@@ -201,6 +201,9 @@ function finvizDevProxy(): Plugin {
 }
 
 export default defineConfig({
-  base: "/",          // Vercel — корень сайта
-  plugins: [react()],
+  base: "/", // на Vercel всегда корень
+  plugins: [
+    react(),
+    finvizDevProxy(),   // ← ДОБАВИТЬ ЭТО
+  ],
 });
