@@ -43,6 +43,7 @@ function parseTable(html: string) {
     const tds = $(tr).find("td");
     const ticker = $(tds.eq(idxTicker)).text().trim();
     if (!/^[-A-Z.]+$/.test(ticker)) return null;
+
     const company   = idxCompany  != null ? $(tds.eq(idxCompany)).text().trim()  || null : null;
     const peTxt     = idxPE       != null ? $(tds.eq(idxPE)).text().trim()       : "";
     const psTxt     = idxPS       != null ? $(tds.eq(idxPS)).text().trim()       : "";
@@ -52,6 +53,7 @@ function parseTable(html: string) {
 
     const pe = Number(peTxt.replace(/,/g, ""));
     const ps = Number(psTxt.replace(/,/g, ""));
+
     return {
       ticker,
       company,
@@ -70,6 +72,7 @@ export default async function handler(req: any, res: any) {
     const page = Math.max(0, parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
     const f    = url.searchParams.get("f") ?? undefined;
 
+    // Valuation (метрики/капитализация) + Overview (company/sector/industry)
     const [htmlVal, htmlOv] = await Promise.all([
       fetch(buildUrl(page, f, "121"), { headers: { "User-Agent": UA, Accept: "text/html,*/*" } }).then(r => r.text()),
       fetch(buildUrl(page, f, "111"), { headers: { "User-Agent": UA, Accept: "text/html,*/*" } }).then(r => r.text()),
@@ -78,6 +81,7 @@ export default async function handler(req: any, res: any) {
     const rowsVal = parseTable(htmlVal);
     const rowsOv  = parseTable(htmlOv);
 
+    // мёрджим company + sector + industry из overview
     const metaByTicker = new Map<string, { company?: string|null; sector?: string|null; industry?: string|null }>();
     rowsOv.forEach(r => {
       metaByTicker.set(r.ticker, {
