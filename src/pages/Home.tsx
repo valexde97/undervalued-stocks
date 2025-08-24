@@ -7,11 +7,12 @@ import { motion } from "framer-motion";
 import { NewsMini } from "../components/NewsMini";
 import { MarketStrip } from "../components/MarketStrip";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
-import { StockList } from "../components/StockList";
+import StockList from "../components/StockList";
 import { FilterPanel } from "../components/FilterPanel";
 import { bootstrapFromFinviz } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
 import styles from "./home.module.css";
+
 
 
 

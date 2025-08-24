@@ -1,121 +1,77 @@
-import { withTokenBase } from "./utilToken";
-import { gateFetchJson } from "./rateGate";
 import type { Stock } from "../types/stock";
 
-type QuoteResp = { c?: number };
-type MetricResp = {
-  metric?: {
-    peBasicExclExtraTTM?: number | null;
-    pbAnnual?: number | null;
-    psTTM?: number | null;
-    currentRatioAnnual?: number | null;
-    debtToEquityAnnual?: number | null;
-    grossMarginTTM?: number | null;
-    netProfitMarginTTM?: number | null;
-  };
+/** Ответ от /api/finviz */
+type FinvizRow = {
+  ticker: string;
+  company?: string | null;
+  marketCapText?: string | null; // "49.06M" | "12.83B"
+  peSnapshot?: number | null;
+  psSnapshot?: number | null;
+  sector?: string | null;
+  industry?: string | null;
 };
-type ProfileResp = { marketCapitalization?: number; name?: string; ipo?: string };
+type FinvizResp = { page: number; count: number; items: FinvizRow[] };
 
-// кэши
+const QUOTE_CONCURRENCY =
+  Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS) || 3;
 
-const quoteCache = new Map<string, { t: number; price: number }>(); // 30с
-const metricCache = new Map<string, {
-  t: number;
-  m: NonNullable<MetricResp["metric"]>;
-  mc: number | null; // <— обязательно null
-}>();
- // 24ч
-
-// быстрые котировки
-export async function refetchQuotes(
-  tickers: string[],
-  opts?: { firstN?: number; ttlMs?: number }
-): Promise<Array<{ ticker: string; price: number }>> {
-  const firstN = opts?.firstN ?? tickers.length;
-  const ttlMs = opts?.ttlMs ?? 30_000;
-  const now = Date.now();
-
-  const work = tickers.slice(0, firstN);
-
-  const tasks = work.map(async (symbol) => {
-    const cached = quoteCache.get(symbol);
-    if (cached && now - cached.t < ttlMs) {
-      return { ticker: symbol, price: cached.price };
-    }
-    const url = withTokenBase("/quote", { symbol });
-    const j = await gateFetchJson<QuoteResp>(url, false);
-    const price = j?.c ?? 0;
-    quoteCache.set(symbol, { t: Date.now(), price });
-    return { ticker: symbol, price };
-  });
-
-  return Promise.all(tasks);
+/** "49.06M" | "12.83B" -> число в МЛН $ */
+function parseCapTextToMillions(txt?: string | null): number | null {
+  if (!txt) return null;
+  const s = String(txt).trim().replace(/[, ]/g, "");
+  const m = s.match(/^(\d+(?:\.\d+)?)([MBT])?$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1]);
+  const u = (m[2] || "").toUpperCase();
+  if (u === "B") return Math.round(n * 1000 * 100) / 100;      // млрд → млн
+  if (u === "T") return Math.round(n * 1_000_000 * 100) / 100; // трлн → млн
+  return Math.round(n * 100) / 100;                            // млн
 }
 
-// медленные метрики/профиль
-export async function enrichBatch(
-  tickers: string[],
-  opts?: { firstN?: number }
-): Promise<Array<Partial<Stock> & { ticker: string }>> {
-  const firstN = opts?.firstN ?? tickers.length;
-  const now = Date.now();
-  const work = tickers.slice(0, firstN);
+type Band = "small" | "mid" | "large";
+function capToBandMillions(mcM?: number | null): Band {
+  const mcB = mcM != null ? mcM / 1000 : 0;
+  if (mcB >= 10) return "large";
+  if (mcB >= 2) return "mid";
+  return "small";
+}
 
-  const results: Array<Partial<Stock> & { ticker: string }> = [];
-  for (const symbol of work) {
-    const cached = metricCache.get(symbol);
-    if (cached && now - cached.t < 24 * 3600_000) {
-      const m = cached.m;
-      results.push({
-        ticker: symbol,
-        pe: m.peBasicExclExtraTTM ?? null,
-        pb: m.pbAnnual ?? null,
-        ps: m.psTTM ?? null,
-        currentRatio: m.currentRatioAnnual ?? null,
-        debtToEquity: m.debtToEquityAnnual ?? null,
-        grossMargin: m.grossMarginTTM ?? null,
-        netMargin: m.netProfitMarginTTM ?? null,
-        marketCap: cached.mc ?? null,
-      });
-      continue;
-    }
+async function fetchJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${url}`);
+  return r.json() as Promise<T>;
+}
 
-    const metricUrl = withTokenBase("/stock/metric", { symbol, metric: "all" });
-    const profileUrl = withTokenBase("/stock/profile2", { symbol });
-
-    const [mr, pr] = await Promise.all([
-      gateFetchJson<MetricResp>(metricUrl, false),
-      gateFetchJson<ProfileResp>(profileUrl, false),
-    ]);
-
-    const m = mr?.metric ?? {};
-  const mcVal = pr?.marketCapitalization ?? null;
-metricCache.set(symbol, { t: Date.now(), m, mc: mcVal });
-
-    results.push({
-      ticker: symbol,
-      pe: m.peBasicExclExtraTTM ?? null,
-      pb: m.pbAnnual ?? null,
-      ps: m.psTTM ?? null,
-      currentRatio: m.currentRatioAnnual ?? null,
-      debtToEquity: m.debtToEquityAnnual ?? null,
-      grossMargin: m.grossMarginTTM ?? null,
-      netMargin: m.netProfitMarginTTM ?? null,
-      marketCap: mcVal,
+/** ограничение параллелизма */
+async function mapLimit<T, R>(
+  arr: T[],
+  limit: number,
+  fn: (item: T, i: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(arr.length);
+  let i = 0;
+  const workers = Array(Math.min(limit, Math.max(1, arr.length)))
+    .fill(0)
+    .map(async () => {
+      while (true) {
+        const idx = i++;
+        if (idx >= arr.length) break;
+        out[idx] = await fn(arr[idx], idx);
+      }
     });
-  }
-
-  return results;
+  await Promise.all(workers);
+  return out;
 }
 
+/* ====== scoring (экспортируется) ====== */
 export function computeScore(s: Partial<Stock> & { price?: number | null }) {
   const price = s.price ?? 0;
-  const pe = s.pe ?? null;
-  const ps = s.ps ?? null;
-  const currentRatio = s.currentRatio ?? null;
-  const debtToEquity = s.debtToEquity ?? null;
-  const grossMargin = s.grossMargin ?? null;
-  const netMargin = s.netMargin ?? null;
+  const pe = (s as any).pe ?? null;
+  const ps = (s as any).ps ?? null;
+  const currentRatio = (s as any).currentRatio ?? null;
+  const debtToEquity = (s as any).debtToEquity ?? null;
+  const grossMargin = (s as any).grossMargin ?? null;
+  const netMargin = (s as any).netMargin ?? null;
 
   let valuePts = 0;
   if (pe != null && pe > 0 && pe <= 15) valuePts++;
@@ -134,31 +90,103 @@ export function computeScore(s: Partial<Stock> & { price?: number | null }) {
   return Math.min(1, 0.6 * valueScore + 0.4 * healthScore + cheapBonus);
 }
 
-// минимальные карточки для первой N-ки
-export async function loadBatchFast(
-  tickers: string[],
+/* ================= main ================= */
+
+export async function loadFinviz(page = 0, f?: string): Promise<FinvizResp> {
+  const url = new URL("/api/finviz", window.location.origin);
+  url.searchParams.set("page", String(page));
+  if (f) url.searchParams.set("f", f);
+  return fetchJSON<FinvizResp>(url.toString());
+}
+
+/** Полный батч: finviz → котировки (c, o, h, l, pc) → мёрдж + скоринг */
+export async function loadBatch(
+  page = 0,
   opts?: { quotesFirstN?: number }
 ): Promise<Stock[]> {
-  const firstN = opts?.quotesFirstN ?? 20;
-  const quotes = await refetchQuotes(tickers, { firstN });
+  const { items } = await loadFinviz(page);
 
-  const qmap = new Map<string, number>();
-  quotes.forEach((q) => qmap.set(q.ticker, q.price));
+  // базовые карточки из finviz
+  const base: Stock[] = items.map((row) => {
+    const mcM = parseCapTextToMillions(row.marketCapText);
+    const category = capToBandMillions(mcM);
+    return {
+      ticker: row.ticker,
+      name: row.company ?? row.ticker,
+      category,
+      price: null,
 
-  return tickers.slice(0, firstN).map<Stock>((t) => ({
-    ticker: t,
-    name: t,
-    category: "mid",
-    price: qmap.get(t) ?? 0,
-    pe: null,
-    pb: null,
-    ps: null,
-    currentRatio: null,
-    debtToEquity: null,
-    grossMargin: null,
-    netMargin: null,
-    marketCap: null,
-    potentialScore: null,
-    reasons: [],
-  }));
+      pe: null,
+      ps: null,
+      pb: null,
+      currentRatio: null,
+      debtToEquity: null,
+      grossMargin: null,
+      netMargin: null,
+
+      marketCap: mcM,
+      marketCapText: row.marketCapText ?? null,
+      peSnapshot: row.peSnapshot ?? null,
+      psSnapshot: row.psSnapshot ?? null,
+      sector: row.sector ?? null,
+      industry: row.industry ?? null,
+
+      potentialScore: null,
+      reasons: [],
+    } as unknown as Stock;
+  });
+
+  // быстрые котировки для первых N (или всех)
+  const firstN = opts?.quotesFirstN ?? base.length;
+  const tickers = base.slice(0, firstN).map((s) => s.ticker);
+
+  type Quote = { c?: number; o?: number; h?: number; l?: number; pc?: number };
+
+  const quotes = await mapLimit(tickers, QUOTE_CONCURRENCY, async (symbol) => {
+    const q = await fetchJSON<Quote>(
+      `/api/fh/quote?symbol=${encodeURIComponent(symbol)}`
+    );
+    return {
+      ticker: symbol,
+      price: q?.c ?? null,
+      open: q?.o ?? null,
+      high: q?.h ?? null,
+      low: q?.l ?? null,
+      prevClose: q?.pc ?? null,
+    };
+  });
+
+  const qMap = new Map(quotes.map((q) => [q.ticker, q]));
+
+  // мёрдж и расчёт скоринга
+  const merged = base.map<Stock>((b) => {
+    const q = qMap.get(b.ticker);
+    const price = q?.price ?? null;
+    const pe = b.pe ?? b.peSnapshot ?? null;
+    const ps = b.ps ?? b.psSnapshot ?? null;
+
+    const out: Stock = { ...b, price, pe, ps } as Stock;
+
+    // прокинем OHLC для карточки
+    (out as any).open = q?.open ?? null;
+    (out as any).high = q?.high ?? null;
+    (out as any).low = q?.low ?? null;
+    (out as any).prevClose = q?.prevClose ?? null;
+
+    out.potentialScore = computeScore(out);
+
+    const reasons: string[] = [];
+    if (pe != null && pe > 0 && pe <= 15) reasons.push("P/E ≤ 15");
+    if (ps != null && ps > 0 && ps <= 1) reasons.push("P/S ≤ 1");
+    if ((out as any).debtToEquity != null && (out as any).debtToEquity < 2) {
+      reasons.push("D/E < 2");
+    }
+    out.reasons = reasons;
+
+    return out;
+  });
+
+  return merged;
 }
+
+export default loadBatch;

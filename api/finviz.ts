@@ -90,7 +90,7 @@ export default async function handler(req: any, res: any) {
       company: nameByTicker.get(r.ticker) ?? r.company ?? null,
     }));
 
-    res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=86400");
+    res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=86400");
     res.setHeader("Content-Type", "application/json");
     res.statusCode = 200;
     res.end(JSON.stringify({ page, count: items.length, items }));

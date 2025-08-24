@@ -1,109 +1,83 @@
 .card {
-  position: relative;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 14px 14px 12px;
-  box-shadow: 0 6px 20px rgba(0,0,0,.18);
-  color: var(--text-light);
-}
-
-/* Кнопка CTA — видна и в светлой теме */
-.viewButton {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid color-mix(in oklab, var(--cta-bg), black 20%);
-  background: var(--cta-bg);
-  color: var(--cta-text);
-  cursor: pointer;
-}
-.viewButton:hover { filter: brightness(1.05); }
-
-/* Иконка избранного — контрастная в light */
-.fav {
-  position: absolute; right: 10px; bottom: 10px;
-  border: none; background: rgba(0,0,0,.08);
-  color: #fbbf24; /* янтарная */
-  border-radius: 8px; padding: 4px 6px; font-size: 16px;
-}
-[data-theme="light"] .fav { background: #f3f4f6; color: #b45309; }
-
-/* кнопка «View details» — вровень, сверху чуть-чуть места */
-.ctaWrap { display: block; margin-top: 10px; }
-
-/* первая строка: Market Cap • Category [badge] — в одну линию */
-.inlineRow {
+  padding: 18px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 6px 0 8px;
-  font-size: 14px;
-}
-.kv { white-space: nowrap; }
-.k  { opacity: .85; }
-.v  { font-weight: 600; }
-.badge {
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(255,255,255,.18);
-  background: rgba(255,255,255,.06);
-  font-weight: 600;
-  text-transform: capitalize;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
 }
 
+.header { display: flex; align-items: center; justify-content: space-between; }
+.title  { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-light); }
 
-.metrics {
-  display: grid;
-  gap: 4px;
-  font-size: 14px;
-}
-
-.ctaWrap { margin-top: 10px; }
-
-.viewButton {
-  width: 100%;
-  padding: 10px 12px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
-  color: #fff;
-  cursor: pointer;
-}
-.viewButton:hover { background-color: var(--primary-hover); }
-
-/* ⭐ — вниз-вправо, не мешает заголовку */
+/* маленькая звёздочка в правом верхнем углу */
 .fav {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
   border: none;
-  background: rgba(255,255,255,0.06);
-  padding: 4px 6px;
-  border-radius: 8px;
+  background: transparent;
   cursor: pointer;
   font-size: 18px;
   line-height: 1;
+  opacity: .75;
 }
-.inactive { color: #ccc; }
+.fav:hover { opacity: 1; transform: scale(1.05); }
+.activeFav { opacity: 1; }
 
-.card:hover { transform: scale(1.02); box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25); }
+.inlineRow { display: flex; align-items: center; gap: 8px; opacity: .9; }
+.kv { display: inline-flex; gap: 6px; align-items: center; }
+.k  { opacity: .75; }
+.v  { font-weight: 600; }
+.dot { opacity: .35; }
 
-/* Light theme adjustments */
-:global([data-theme="light"]) .card {
-  background: #ffffff;
-  color: #0f172a;
-  border: 1px solid #e5e7eb;
-  box-shadow: 0 6px 16px rgba(2, 6, 23, 0.06);
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text-light);
 }
-:global([data-theme="light"]) .viewButton {
-  background: #f3f4f6;
-  color: #111827;
-  border-color: #e5e7eb;
+.badgeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--accent);
+  display: inline-block;
 }
-:global([data-theme="light"]) .badge {
-  border-color: #e5e7eb;
-  background: #f8fafc;
-  color: #0f172a;
+
+/* цена и дельта */
+.priceRow {
+  display: flex; align-items: baseline; justify-content: space-between;
+  gap: 10px; margin-top: 2px;
 }
+.priceBlock { display: inline-flex; align-items: baseline; gap: 6px; }
+.priceLabel { opacity: .8; }
+.priceValue { font-size: 20px; font-weight: 800; }
+
+.delta { font-weight: 700; }
+.up   { color: #22c55e; }
+.down { color: #ef4444; }
+
+.subStats {
+  display: flex; gap: 14px; flex-wrap: wrap;
+  font-size: 12px; opacity: .85;
+}
+.range > span, .xtra > span { font-weight: 600; opacity: .95; }
+
+.metrics {
+  display: grid; grid-template-columns: repeat(2, minmax(0,1fr));
+  gap: 6px 14px; font-size: 13px; opacity: .9;
+}
+
+.ctaWrap { margin-top: 6px; }
+.viewButton {
+  width: 100%; padding: 10px 14px; border-radius: 12px;
+  background: var(--primary); color: white; border: 1px solid var(--border);
+  font-weight: 700; cursor: pointer;
+}
+.viewButton:hover { filter: brightness(1.05); }

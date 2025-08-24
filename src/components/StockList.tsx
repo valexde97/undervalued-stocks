@@ -1,12 +1,25 @@
-import React from "react";
+// src/components/StockList.tsx
 import type { Stock } from "../types/stock";
-import { StockCard } from "./StockCard";
+import StockCard from "./StockCard";
 import styles from "./stockList.module.css";
 
-type Props = { stocks: Stock[] };
+type Props = {
+  stocks: Stock[] | null | undefined;
+};
 
-export const StockList: React.FC<Props> = ({ stocks }) => (
-  <div className={styles.grid}>
-    {stocks.map((s) => <StockCard key={s.ticker} stock={s} />)}
-  </div>
-);
+export default function StockList({ stocks }: Props) {
+  const data = Array.isArray(stocks) ? stocks : [];
+
+  if (data.length === 0) {
+    // Пустое состояние — без навязчивых ошибок
+    return <div className={styles.empty}>No stocks to show</div>;
+  }
+
+  return (
+    <div className={styles.grid}>
+      {data.map((s) => (
+        <StockCard key={s.ticker} stock={s} />
+      ))}
+    </div>
+  );
+}

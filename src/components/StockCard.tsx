@@ -1,59 +1,71 @@
-// src/components/StockCard.tsx
 import { Link } from "react-router-dom";
 import { motion, useAnimation, useInView } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useMemo } from "react";
 import { useFavorites } from "./FavoritesContext";
 import type { Stock } from "../types/stock";
-import { loadValuation, type Valuation } from "../api/valuation";
 import styles from "./stockCard.module.css";
 
 type Props = { stock: Stock };
 
-const capText = (s: Stock) => {
-  if ((s as any).marketCapText) return (s as any).marketCapText as string;
-  if ((s as any).marketCap && (s as any).marketCap > 0) {
-    const n = (s as any).marketCap as number;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(2)}B`;
-    return `${n.toFixed(2)}M`;
-  }
-  return "—";
-};
+function capTextM(m?: number | null, text?: string | null) {
+  if (text) return text;
+  if (m == null) return "—";
+  if (m >= 1000) return `${(m / 1000).toFixed(2)}B`;
+  return `${m.toFixed(2)}M`;
+}
 
-const fmt = (n: number | null | undefined, d = 2) =>
-  n == null || !Number.isFinite(n) ? "—" : Number(n).toFixed(d);
+function prettyCategory(cat?: string | null) {
+  if (!cat) return "—";
+  const s = String(cat).toLowerCase(); // small | mid | large
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
 
-const fmtPct = (n: number | null | undefined, d = 1) =>
-  n == null || !Number.isFinite(n) ? "—" : (n * 100).toFixed(d) + "%";
-
-export const StockCard: React.FC<Props> = ({ stock }) => {
+const StockCard: React.FC<Props> = ({ stock }) => {
   const { favorites, toggleFavorite } = useFavorites();
   const isFavorite = favorites.includes(stock.ticker);
 
-  // Анимация появления
   const ref = useRef<HTMLDivElement | null>(null);
   const inView = useInView(ref, { once: true, margin: "0px 0px -10% 0px" });
   const controls = useAnimation();
-  useEffect(() => {
-    if (inView) controls.start("visible");
-  }, [inView, controls]);
-
-  // Доп. метрики оценки
-  const [val, setVal] = useState<Valuation | null>(null);
-  useEffect(() => {
-    let alive = true;
-    loadValuation(stock.ticker)
-      .then((v) => {
-        if (alive) setVal(v);
-      })
-      .catch(() => {
-        if (alive) setVal(null);
-      });
-    return () => {
-      alive = false;
-    };
-  }, [stock.ticker]);
+  useEffect(() => { if (inView) controls.start("visible"); }, [inView, controls]);
 
   const title = `${(stock as any)?.company ?? stock.name} (${stock.ticker})`;
+
+  // null-safe дневные показатели
+  const day = useMemo(() => {
+    const open = (stock as any)?.open ?? null;
+    const prev = (stock as any)?.prevClose ?? null;
+    const high = (stock as any)?.high ?? null;
+    const low  = (stock as any)?.low  ?? null;
+    const price = stock.price ?? null;
+
+    const dAbs = price != null && prev != null ? price - prev : null;
+    const dPct = dAbs != null && prev ? (dAbs / prev) * 100 : null;
+
+    const openDelta = open != null && prev != null ? open - prev : null;
+
+    return { open, prev, high, low, price, dAbs, dPct, openDelta };
+  }, [stock]);
+
+  const catLabel = prettyCategory((stock as any)?.category);
+  const mainDeltaClass =
+    day.dPct != null ? (day.dPct >= 0 ? styles.up : styles.down) : "";
+  const openPrevClass =
+    day.openDelta != null ? (day.openDelta >= 0 ? styles.up : styles.down) : "";
+
+  const openPrevText =
+    day.open != null && day.prev != null
+      ? `${day.open.toFixed(2)} • ${day.prev.toFixed(2)}${
+          day.openDelta != null
+            ? ` (${day.openDelta >= 0 ? "+" : ""}${day.openDelta.toFixed(2)})`
+            : ""
+        }`
+      : "—";
+
+  const dayRangeText =
+    day.low != null && day.high != null
+      ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}`
+      : "—";
 
   return (
     <motion.div
@@ -67,70 +79,88 @@ export const StockCard: React.FC<Props> = ({ stock }) => {
       }}
       className={styles.card}
     >
+      {/* заголовок + маленькая ⭐ справа сверху */}
       <div className={styles.header}>
         <h3 className={styles.title}>{title}</h3>
+        <button
+          onClick={() => toggleFavorite(stock.ticker)}
+          className={`${styles.fav} ${isFavorite ? styles.activeFav : ""}`}
+          aria-label={isFavorite ? "remove from favorites" : "add to favorites"}
+          title="Toggle favorite"
+        >
+          {isFavorite ? "⭐" : "☆"}
+        </button>
       </div>
 
-      {/* Капа + категория */}
+      {/* Market cap + Category */}
       <div className={styles.inlineRow}>
         <span className={styles.kv}>
           <span className={styles.k}>Market Cap:</span>{" "}
-          <span className={styles.v}>{capText(stock)}</span>
+          <span className={styles.v}>
+            {capTextM(stock.marketCap ?? null, (stock as any)?.marketCapText)}
+          </span>
         </span>
         <span className={styles.dot}>•</span>
         <span className={styles.kv}>
           <span className={styles.k}>Category:</span>{" "}
-          <span className={styles.badge}>{stock.category}</span>
+          <span className={styles.badge}>
+            <span className={styles.badgeDot} />
+            {catLabel}
+          </span>
         </span>
       </div>
 
-      {/* Базовые метрики из списка */}
-      <div className={styles.metrics} style={{ display: "grid", gridTemplateColumns: "repeat(3, auto)", gap: 8 }}>
-        <div>
-          Price:{" "}
-          {stock.price != null ? `$${Number(stock.price).toFixed(2)}` : val?.price != null ? `$${fmt(val.price)}` : "—"}
+      {/* Price + delta (зелёный/красный) */}
+      <div className={styles.priceRow}>
+        <div className={styles.priceBlock}>
+          <span className={styles.priceLabel}>Price:</span>
+          <span className={styles.priceValue}>
+            {day.price != null ? `$${day.price.toFixed(2)}` : "—"}
+          </span>
         </div>
-        <div>
-          PE:{" "}
-          {stock.pe ?? (stock as any).peSnapshot ?? (val?.pe ?? null)
-            ? (stock.pe ?? (stock as any).peSnapshot ?? val?.pe)!.toFixed(2)
-            : "—"}
-          {stock.pe ? " (live)" : (stock as any).peSnapshot ? " (finviz)" : val?.pe ? " (calc)" : ""}
+        <span className={`${styles.delta} ${mainDeltaClass}`}>
+          {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}% `}
+          {day.dAbs == null ? "" : `(${day.dAbs >= 0 ? "+" : ""}${day.dAbs.toFixed(2)})`}
+        </span>
+      </div>
+
+      {/* Day range + Open/Prev (дельта тоже цветом) */}
+      <div className={styles.subStats}>
+        <div className={styles.range}>
+          Day range: <span>{dayRangeText}</span>
         </div>
-        <div>
-          PS:{" "}
-          {stock.ps ?? (stock as any).psSnapshot
-            ? (Number(stock.ps ?? (stock as any).psSnapshot)).toFixed(2)
-            : "—"}
-          {stock.ps ? " (live)" : (stock as any).psSnapshot ? " (finviz)" : ""}
+        <div className={styles.xtra}>
+          Open/Prev: <span className={openPrevClass}>{openPrevText}</span>
         </div>
       </div>
 
-      {/* Доп. оценочные мультипликаторы (по возможности) */}
-      <div className={styles.metrics} style={{ display: "grid", gridTemplateColumns: "repeat(4, auto)", gap: 8 }}>
-        <div>EV/EBITDA: {fmt(val?.evEbitda, 2)}</div>
-        <div>P/FCF: {fmt(val?.pFcf, 2)}</div>
-        <div>FCF-Yield: {fmtPct(val?.fcfYield, 1)}</div>
-        <div>PEG: {fmt(val?.peg, 2)}</div>
+      {/* краткие метрики */}
+      <div className={styles.metrics}>
+        <div>
+          PE: {stock.pe ?? (stock as any).peSnapshot ?? "—"}
+          {stock.pe ? "" : (stock as any).peSnapshot ? " (finviz)" : ""}
+        </div>
+        <div>
+          PS: {stock.ps ?? (stock as any).psSnapshot ?? "—"}
+          {stock.ps ? "" : (stock as any).psSnapshot ? " (finviz)" : ""}
+        </div>
       </div>
 
       <div className={styles.ctaWrap}>
         <Link to={`/stocks/${stock.ticker}`}>
-          <motion.button className={styles.viewButton} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+          <motion.button
+            className={styles.viewButton}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+          >
             View Details
           </motion.button>
         </Link>
       </div>
-
-      {/* Избранное */}
-      <button
-        onClick={() => toggleFavorite(stock.ticker)}
-        className={`${styles.fav} ${isFavorite ? "" : styles.inactive}`}
-        aria-label={isFavorite ? "remove from favorites" : "add to favorites"}
-        title="Toggle favorite"
-      >
-        {isFavorite ? "⭐" : "☆"}
-      </button>
     </motion.div>
   );
 };
+
+// экспорт и именованный, и дефолтный — чтобы Favorites.tsx не падал
+export { StockCard };
+export default StockCard;

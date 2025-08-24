@@ -1,9 +1,30 @@
 // src/store/stocksSlice.ts
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { Stock } from "../types/stock";
-import { loadBatchFast, enrichBatch, refetchQuotes, computeScore } from "../api/loadBatch";
+import { loadFinviz } from "../api/loadBatch"; // уже есть в твоём файле
 
-// --- state
+// локальная утилита для котировок с ограничением параллелизма
+async function fetchJSON<T>(url: string): Promise<T> {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json() as Promise<T>;
+}
+type Quote = { c?: number; o?: number; h?: number; l?: number; pc?: number };
+async function mapLimit<T, R>(
+  arr: T[], limit: number, fn: (x: T, i: number) => Promise<R>
+): Promise<R[]> {
+  const out: R[] = new Array(arr.length);
+  let i = 0;
+  const workers = Array(Math.min(limit, Math.max(1, arr.length))).fill(0).map(async () => {
+    while (true) {
+      const idx = i++; if (idx >= arr.length) break;
+      out[idx] = await fn(arr[idx], idx);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
 type StocksState = {
   items: Stock[];
   status: "idle" | "loading" | "succeeded" | "failed";
@@ -11,7 +32,6 @@ type StocksState = {
   symbolPage: number;
   symbolsPerPage: number;
 };
-
 const initialState: StocksState = {
   items: [],
   status: "idle",
@@ -19,143 +39,87 @@ const initialState: StocksState = {
   symbolsPerPage: 60,
 };
 
-// --- actions
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>(
   "stocks/mergeStockPatch"
 );
 
-// утилита: "48.80M" -> 0.0488 (в млрд)
-function parseCapTextToBillions(txt?: string | null) {
-  if (!txt) return null;
-  const m = String(txt).trim().match(/^([\d.,]+)\s*([MBT])?$/i);
-  if (!m) return null;
-  const num = Number(m[1].replace(/,/g, ""));
-  const unit = (m[2] || "").toUpperCase();
-  const factor = unit === "T" ? 1000 : unit === "B" ? 1 : unit === "M" ? 0.001 : 0;
-  if (!Number.isFinite(num)) return null;
-  return num * factor; // млрд
-}
-
-function capToBandFromText(txt?: string | null): "small" | "mid" | "large" {
-  const capB = parseCapTextToBillions(txt) ?? 0;
-  if (capB >= 10) return "large";
-  if (capB >= 2) return "mid";
-  return "small";
-}
-
-// --- Finviz bootstrap
-type FinvizItem = {
-  ticker: string;
-  company: string | null;
-  marketCapText: string | null;
-  peSnapshot: number | null;
-  psSnapshot: number | null;
-  sector: string | null;
-  industry: string | null;
-};
-type FinvizPage = { page: number; count: number; items: FinvizItem[] };
-
 export const bootstrapFromFinviz = createAsyncThunk<
   Stock[],
-  { pages?: number } | void
+  { pages?: number; quotesConcurrency?: number } | void
 >(
   "stocks/bootstrapFromFinviz",
   async (arg = {}, { dispatch }) => {
-    const pages = arg?.pages ?? 12;
+    const pages = (arg as any)?.pages ?? 1;
+    const conc  = (arg as any)?.quotesConcurrency
+      ?? Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS || 8); // ↑ увеличил дефолт
 
-    // 1) первая страница
-    const page0: FinvizPage = await fetch("/api/finviz?page=0").then(r => r.json());
+    // 1) Быстро тянем finviz (1-я страница) и ОТРИСОВЫВАЕМ сразу
+    const { items } = await loadFinviz(0);
+    const base: Stock[] = items.map(row => {
+      // лёгкий маппер (как у тебя в loadBatch)
+      const capTxt = row.marketCapText ?? null;
+      const peSnap = row.peSnapshot ?? null;
+      const psSnap = row.psSnapshot ?? null;
+      const s: any = {
+        ticker: row.ticker,
+        name: row.company ?? row.ticker,
+        category: "mid",          // настоящая категория уже есть в карточке из твоего маппера; здесь не критично
+        price: null,
+        pe: null, ps: null, pb: null,
+        currentRatio: null, debtToEquity: null, grossMargin: null, netMargin: null,
+        marketCap: null,
+        marketCapText: capTxt,
+        peSnapshot: peSnap,
+        psSnapshot: psSnap,
+        sector: row.sector ?? null,
+        industry: row.industry ?? null,
+        potentialScore: null,
+        reasons: [],
+      };
+      return s as Stock;
+    });
 
-   const firstStocks: Stock[] = page0.items.map((x) => {
-  const category = capToBandFromText(x.marketCapText); // <- твоя утилита (см. ранее)
-  return {
-    ticker: x.ticker,
-    name: x.company ?? x.ticker,
-    category,
-    price: null,
+    // показать мгновенно
+    dispatch(setStocks(base));
 
-    // снапшоты (быстро из Finviz)
-    peSnapshot: x.peSnapshot ?? null,
-    psSnapshot: x.psSnapshot ?? null,
+    // 2) В ФОНЕ — котировки для первых 20 (или всех, если хочешь)
+    const tickers = base.slice(0, 20).map(s => s.ticker);
+    void (async () => {
+      const quotes = await mapLimit(tickers, conc, async (symbol) => {
+        const q = await fetchJSON<Quote>(`/api/fh/quote?symbol=${encodeURIComponent(symbol)}`);
+        return { ticker: symbol, q };
+      });
+      quotes.forEach(({ ticker, q }) => {
+        dispatch(mergeStockPatch({
+          ticker,
+          price: q.c ?? null,
+          // прокинул OHLC — карточка их подхватит
+          ...(q.o != null ? { open: q.o as any } : {}),
+          ...(q.h != null ? { high: q.h as any } : {}),
+          ...(q.l != null ? { low:  q.l as any } : {}),
+          ...(q.pc!= null ? { prevClose: q.pc as any } : {}),
+        }));
+      });
+    })();
 
-    // ДОБАВЛЕНО: для UI
-    marketCapText: x.marketCapText ?? null,
-    sector: x.sector ?? null,
-    industry: x.industry ?? null,
-
-    // можно хранить и численную капу, если хочешь
-    marketCap: parseCapTextToBillions(x.marketCapText),
-
-    potentialScore: null,
-    reasons: [],
-  };
-});
-
-
-    // мгновенно показать
-    dispatch(setStocks(firstStocks));
-
-    // 2) фоном — страницы 1..pages-1 (разогрев прокси-таблицы)
+    // 3) Можно прогреть остальные страницы finviz (без влияния на UX)
     if (pages > 1) {
-      const tasks: Promise<void>[] = [];
       for (let p = 1; p < pages; p++) {
-        tasks.push(fetch(`/api/finviz?page=${p}`).then(() => {}).catch(() => {}));
+        void loadFinviz(p).catch(() => {});
       }
-      void Promise.allSettled(tasks);
     }
 
-    // 3) быстрые котировки для первых 20
-    const firstTickers = firstStocks.map(s => s.ticker);
-    const withPrices = await loadBatchFast(firstTickers, { quotesFirstN: 20 });
-    const priceMap = new Map(withPrices.map(s => [s.ticker, s.price ?? 0]));
-    const merged = firstStocks.map<Stock>(s => ({ ...s, price: priceMap.get(s.ticker) ?? null }));
-
-    // 4) фон: метрики + скор
-    void dispatch(enrichCurrentBatch(firstTickers));
-
-    // 5) фон: ретрай нулевых цен
-    const missing = firstTickers.filter(t => (priceMap.get(t) ?? 0) <= 0);
-    if (missing.length) void dispatch(retryZeroQuotes(missing));
-
-    return merged;
+    return base; // уже отрисовано
   }
 );
 
-// --- обогащение
-export const enrichCurrentBatch = createAsyncThunk<void, string[]>(
-  "stocks/enrich",
-  async (tickers, { dispatch, getState }) => {
-    const patches = await enrichBatch(tickers, { firstN: tickers.length });
-    const state = (getState() as { stocks: StocksState }).stocks;
-
-    patches.forEach((p) => {
-      const current = state.items.find((x) => x.ticker === p.ticker);
-      if (!current) return;
-      const merged = { ...current, ...p } as Stock;
-      const potentialScore = computeScore(merged);
-      dispatch(mergeStockPatch({ ...p, ticker: p.ticker, potentialScore }));
-    });
-  }
-);
-
-// --- ретрай котировок
-export const retryZeroQuotes = createAsyncThunk<void, string[]>(
-  "stocks/retryQuotes",
-  async (tickers, { dispatch }) => {
-    const quotes = await refetchQuotes(tickers, { firstN: tickers.length });
-    quotes
-      .filter(q => q.price && q.price > 0)
-      .forEach(q => dispatch(mergeStockPatch({ ticker: q.ticker, price: q.price })));
-  }
-);
-
-// --- slice
 const stocksSlice = createSlice({
   name: "stocks",
   initialState,
   reducers: {
     setStocks(state, action: PayloadAction<Stock[]>) {
       state.items = action.payload;
+      state.status = "succeeded";
     },
     nextSymbolsPage(state) {
       state.symbolPage += 1;
@@ -173,8 +137,9 @@ const stocksSlice = createSlice({
         state.error = undefined;
       })
       .addCase(bootstrapFromFinviz.fulfilled, (state, action: PayloadAction<Stock[]>) => {
+        // данные уже показали ранее; тут можно просто убедиться
         state.status = "succeeded";
-        state.items = action.payload;
+        if (!state.items.length) state.items = action.payload;
       })
       .addCase(bootstrapFromFinviz.rejected, (state, action) => {
         state.status = "failed";
