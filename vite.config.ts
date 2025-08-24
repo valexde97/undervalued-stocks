@@ -1,7 +1,5 @@
 /* eslint-disable @typescript-eslint/no-misused-promises */
 // vite.config.ts
-
-
 import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import * as cheerio from "cheerio";
@@ -19,10 +17,8 @@ const BASE = "https://finviz.com/screener.ashx";
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
-// Valuation (P/E, P/S, Sector, Industry, Market Cap)
-const VIEW_VALUATION = "121";
-// Overview (есть Company)
-const VIEW_OVERVIEW = "111";
+const VIEW_VALUATION = "121"; // Valuation (P/E, P/S, Market Cap ...)
+const VIEW_OVERVIEW  = "111"; // Overview (Company, Sector, Industry ...)
 
 // общий билдер
 function buildUrl(page: number, f?: string, v?: string) {
@@ -36,7 +32,6 @@ function buildUrl(page: number, f?: string, v?: string) {
 function parseTable(html: string) {
   const $ = cheerio.load(html);
 
-  // ищем первую «табличную» с заголовками
   let table = $("table.table-light").first();
   if (table.length === 0) {
     table = $("table")
@@ -55,22 +50,14 @@ function parseTable(html: string) {
     headerIdx[text] = i;
   });
 
-  // индексы по известным названиям колонок
-  const idxTicker =
-    Object.entries(headerIdx).find(([k]) => k.includes("ticker"))?.[1] ?? 1;
-  const idxCompany = Object.entries(headerIdx).find(([k]) => k.includes("company"))?.[1];
-  const idxPE =
-    Object.entries(headerIdx).find(([k]) => k === "p/e" || k.includes("p/e"))?.[1];
-  const idxPS =
-    Object.entries(headerIdx).find(([k]) => k === "p/s" || k.includes("p/s"))?.[1];
-  const idxMktCap =
-    Object.entries(headerIdx).find(([k]) => k.includes("market cap"))?.[1];
-  const idxSector =
-    Object.entries(headerIdx).find(([k]) => k.includes("sector"))?.[1];
-  const idxIndustry =
-    Object.entries(headerIdx).find(([k]) => k.includes("industry"))?.[1];
+  const idxTicker   = Object.entries(headerIdx).find(([k]) => k.includes("ticker"))?.[1] ?? 1;
+  const idxCompany  = Object.entries(headerIdx).find(([k]) => k.includes("company"))?.[1];
+  const idxPE       = Object.entries(headerIdx).find(([k]) => k === "p/e" || k.includes("p/e"))?.[1];
+  const idxPS       = Object.entries(headerIdx).find(([k]) => k === "p/s" || k.includes("p/s"))?.[1];
+  const idxMktCap   = Object.entries(headerIdx).find(([k]) => k.includes("market cap"))?.[1];
+  const idxSector   = Object.entries(headerIdx).find(([k]) => k.includes("sector"))?.[1];
+  const idxIndustry = Object.entries(headerIdx).find(([k]) => k.includes("industry"))?.[1];
 
-  // строки
   const rows = table.find("tbody tr").length
     ? table.find("tbody tr")
     : table.find("tr").slice(1);
@@ -94,18 +81,12 @@ function parseTable(html: string) {
     const ticker = $(tds.eq(idxTicker)).text().trim();
     if (!/^[-A-Z.]+$/.test(ticker)) return;
 
-    const company =
-      idxCompany != null ? $(tds.eq(idxCompany)).text().trim() || null : null;
-
-    const peTxt = idxPE != null ? $(tds.eq(idxPE)).text().trim() : "";
-    const psTxt = idxPS != null ? $(tds.eq(idxPS)).text().trim() : "";
-    const mktTxt =
-      idxMktCap != null ? $(tds.eq(idxMktCap)).text().trim() || null : null;
-
-    const sector =
-      idxSector != null ? $(tds.eq(idxSector)).text().trim() || null : null;
-    const industry =
-      idxIndustry != null ? $(tds.eq(idxIndustry)).text().trim() || null : null;
+    const company  = idxCompany  != null ? $(tds.eq(idxCompany)).text().trim()  || null : null;
+    const peTxt    = idxPE       != null ? $(tds.eq(idxPE)).text().trim()       : "";
+    const psTxt    = idxPS       != null ? $(tds.eq(idxPS)).text().trim()       : "";
+    const mktTxt   = idxMktCap   != null ? $(tds.eq(idxMktCap)).text().trim()   || null : null;
+    const sector   = idxSector   != null ? $(tds.eq(idxSector)).text().trim()   || null : null;
+    const industry = idxIndustry != null ? $(tds.eq(idxIndustry)).text().trim() || null : null;
 
     const pe = Number(peTxt.replace(/,/g, ""));
     const ps = Number(psTxt.replace(/,/g, ""));
@@ -130,29 +111,21 @@ function finvizDevProxy(): Plugin {
     configureServer(server) {
       server.middlewares.use((req: Req, res: Res, next: Next) => {
         const path = req.url || "";
-        if (
-          !path.startsWith("/api/finviz") &&
-          !path.startsWith("/undervalued-stocks/api/finviz")
-        )
-          return next();
+        if (!path.startsWith("/api/finviz")) return next();
 
         (async () => {
           try {
             const u = new URL(path, "http://localhost");
-            const page = Math.max(
-              0,
-              parseInt(u.searchParams.get("page") ?? "0", 10) || 0
-            );
+            const page = Math.max(0, parseInt(u.searchParams.get("page") ?? "0", 10) || 0);
             const f = u.searchParams.get("f") ?? undefined;
 
-            // тянем две страницы: valuation (для метрик/sector/industry/marketCap) и overview (для имени)
+            // тянем две страницы: valuation (метрики/капу) и overview (company/sector/industry)
             const [htmlVal, htmlOv] = await Promise.all([
               fetch(buildUrl(page, f, VIEW_VALUATION), {
                 headers: {
                   "User-Agent": UA,
                   "Accept-Language": "en-US,en;q=0.9",
-                  Accept:
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                   Referer: `${BASE}?v=${VIEW_VALUATION}`,
                 },
               }).then((r) => r.text()),
@@ -160,31 +133,37 @@ function finvizDevProxy(): Plugin {
                 headers: {
                   "User-Agent": UA,
                   "Accept-Language": "en-US,en;q=0.9",
-                  Accept:
-                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
                   Referer: `${BASE}?v=${VIEW_OVERVIEW}`,
                 },
               }).then((r) => r.text()),
             ]);
 
             const rowsVal = parseTable(htmlVal);
-            const rowsOv = parseTable(htmlOv);
+            const rowsOv  = parseTable(htmlOv);
 
-            // индекс для Company из overview
-            const nameByTicker = new Map<string, string>();
-            rowsOv.forEach((r) => {
-              if (r.ticker && r.company) nameByTicker.set(r.ticker, r.company);
+            // собираем company/sector/industry из overview
+            const metaByTicker = new Map<string, { company?: string|null; sector?: string|null; industry?: string|null }>();
+            rowsOv.forEach(r => {
+              metaByTicker.set(r.ticker, {
+                company: r.company ?? null,
+                sector: r.sector ?? null,
+                industry: r.industry ?? null,
+              });
             });
 
-            const items = rowsVal.map((r) => ({
-              ticker: r.ticker,
-              company: nameByTicker.get(r.ticker) ?? null,
-              marketCapText: r.marketCapText ?? null,
-              peSnapshot: r.peSnapshot ?? null,
-              psSnapshot: r.psSnapshot ?? null,
-              sector: r.sector ?? null,
-              industry: r.industry ?? null,
-            }));
+            const items = rowsVal.map((r) => {
+              const meta = metaByTicker.get(r.ticker);
+              return {
+                ticker: r.ticker,
+                company:  meta?.company  ?? r.company  ?? null,
+                marketCapText: r.marketCapText ?? null,
+                peSnapshot:    r.peSnapshot    ?? null,
+                psSnapshot:    r.psSnapshot    ?? null,
+                sector:   meta?.sector   ?? r.sector   ?? null,
+                industry: meta?.industry ?? r.industry ?? null,
+              };
+            });
 
             res.statusCode = 200;
             res.setHeader("Content-Type", "application/json");
@@ -201,9 +180,21 @@ function finvizDevProxy(): Plugin {
 }
 
 export default defineConfig({
-  base: "/", // на Vercel всегда корень
+  base: "/",
   plugins: [
     react(),
-    finvizDevProxy(),   // ← ДОБАВИТЬ ЭТО
+    finvizDevProxy(), // локально /api/finviz идёт сюда
   ],
+  server: {
+    port: 5173,
+    // остальное /api/fh/* отдаём serverless-роутам через vercel dev
+    proxy: {
+      "/api/fh": {
+        target: "http://localhost:3000", // vercel dev
+        changeOrigin: true,
+        secure: false,
+        headers: { "x-dev-proxy": "vite" },
+      },
+    },
+  },
 });

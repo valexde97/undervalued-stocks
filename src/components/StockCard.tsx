@@ -1,3 +1,4 @@
+// src/components/StockCard.tsx
 import { Link } from "react-router-dom";
 import { motion, useAnimation, useInView } from "framer-motion";
 import { useEffect, useRef, useMemo } from "react";
@@ -5,7 +6,7 @@ import { useFavorites } from "./FavoritesContext";
 import type { Stock } from "../types/stock";
 import styles from "./stockCard.module.css";
 
-type Props = { stock: Stock };
+type Props = { stock: Stock; marketClosed?: boolean };
 
 function capTextM(m?: number | null, text?: string | null) {
   if (text) return text;
@@ -20,7 +21,7 @@ function prettyCategory(cat?: string | null) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const StockCard: React.FC<Props> = ({ stock }) => {
+const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
   const { favorites, toggleFavorite } = useFavorites();
   const isFavorite = favorites.includes(stock.ticker);
 
@@ -41,17 +42,14 @@ const StockCard: React.FC<Props> = ({ stock }) => {
 
     const dAbs = price != null && prev != null ? price - prev : null;
     const dPct = dAbs != null && prev ? (dAbs / prev) * 100 : null;
-
     const openDelta = open != null && prev != null ? open - prev : null;
 
     return { open, prev, high, low, price, dAbs, dPct, openDelta };
   }, [stock]);
 
   const catLabel = prettyCategory((stock as any)?.category);
-  const mainDeltaClass =
-    day.dPct != null ? (day.dPct >= 0 ? styles.up : styles.down) : "";
-  const openPrevClass =
-    day.openDelta != null ? (day.openDelta >= 0 ? styles.up : styles.down) : "";
+  const mainDeltaClass = day.dPct != null ? (day.dPct >= 0 ? styles.up : styles.down) : "";
+  const openPrevClass = day.openDelta != null ? (day.openDelta >= 0 ? styles.up : styles.down) : "";
 
   const openPrevText =
     day.open != null && day.prev != null
@@ -110,27 +108,30 @@ const StockCard: React.FC<Props> = ({ stock }) => {
         </span>
       </div>
 
-      {/* Price + delta (зелёный/красный) */}
+      {/* Price + delta (зелёный/красный) + бейдж закрытого рынка */}
       <div className={styles.priceRow}>
         <div className={styles.priceBlock}>
           <span className={styles.priceLabel}>Price:</span>
           <span className={styles.priceValue}>
             {day.price != null ? `$${day.price.toFixed(2)}` : "—"}
           </span>
+          {marketClosed && (
+            <span className={styles.badge} style={{ marginLeft: 8 }}>Market closed</span>
+          )}
         </div>
-        <span className={`${styles.delta} ${mainDeltaClass}`}>
+        <span className={`${styles.delta} ${mainDeltaClass}`} style={marketClosed ? { opacity: .5 } : undefined}>
           {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}% `}
           {day.dAbs == null ? "" : `(${day.dAbs >= 0 ? "+" : ""}${day.dAbs.toFixed(2)})`}
         </span>
       </div>
 
-      {/* Day range + Open/Prev (дельта тоже цветом) */}
+      {/* Day range + Open/Prev */}
       <div className={styles.subStats}>
         <div className={styles.range}>
           Day range: <span>{dayRangeText}</span>
         </div>
         <div className={styles.xtra}>
-          Open/Prev: <span className={openPrevClass}>{openPrevText}</span>
+          Open/Prev: <span className={openPrevClass} style={marketClosed ? { opacity: .7 } : undefined}>{openPrevText}</span>
         </div>
       </div>
 
@@ -161,6 +162,5 @@ const StockCard: React.FC<Props> = ({ stock }) => {
   );
 };
 
-// экспорт и именованный, и дефолтный — чтобы Favorites.tsx не падал
 export { StockCard };
 export default StockCard;

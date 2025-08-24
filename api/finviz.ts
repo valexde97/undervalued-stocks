@@ -1,5 +1,5 @@
+// /api/finviz.ts
 export const runtime = "nodejs";
-
 import * as cheerio from "cheerio";
 
 const BASE = "https://finviz.com/screener.ashx";
@@ -29,13 +29,13 @@ function parseTable(html: string) {
     headerIdx[$(th).text().trim().toLowerCase()] = i;
   });
 
-  const idxTicker  = Object.entries(headerIdx).find(([k]) => k.includes("ticker"))?.[1] ?? 1;
-  const idxCompany = Object.entries(headerIdx).find(([k]) => k.includes("company"))?.[1];
-  const idxPE      = Object.entries(headerIdx).find(([k]) => k.includes("p/e"))?.[1];
-  const idxPS      = Object.entries(headerIdx).find(([k]) => k.includes("p/s"))?.[1];
-  const idxMktCap  = Object.entries(headerIdx).find(([k]) => k.includes("market cap"))?.[1];
-  const idxSector  = Object.entries(headerIdx).find(([k]) => k.includes("sector"))?.[1];
-  const idxIndustry= Object.entries(headerIdx).find(([k]) => k.includes("industry"))?.[1];
+  const idxTicker   = Object.entries(headerIdx).find(([k]) => k.includes("ticker"))?.[1] ?? 1;
+  const idxCompany  = Object.entries(headerIdx).find(([k]) => k.includes("company"))?.[1];
+  const idxPE       = Object.entries(headerIdx).find(([k]) => k.includes("p/e"))?.[1];
+  const idxPS       = Object.entries(headerIdx).find(([k]) => k.includes("p/s"))?.[1];
+  const idxMktCap   = Object.entries(headerIdx).find(([k]) => k.includes("market cap"))?.[1];
+  const idxSector   = Object.entries(headerIdx).find(([k]) => k.includes("sector"))?.[1];
+  const idxIndustry = Object.entries(headerIdx).find(([k]) => k.includes("industry"))?.[1];
 
   const rows = table.find("tbody tr").length ? table.find("tbody tr") : table.find("tr").slice(1);
 
@@ -43,11 +43,11 @@ function parseTable(html: string) {
     const tds = $(tr).find("td");
     const ticker = $(tds.eq(idxTicker)).text().trim();
     if (!/^[-A-Z.]+$/.test(ticker)) return null;
-    const company   = idxCompany != null ? $(tds.eq(idxCompany)).text().trim() || null : null;
-    const peTxt     = idxPE != null ? $(tds.eq(idxPE)).text().trim() : "";
-    const psTxt     = idxPS != null ? $(tds.eq(idxPS)).text().trim() : "";
-    const mktTxt    = idxMktCap != null ? $(tds.eq(idxMktCap)).text().trim() || null : null;
-    const sector    = idxSector != null ? $(tds.eq(idxSector)).text().trim() || null : null;
+    const company   = idxCompany  != null ? $(tds.eq(idxCompany)).text().trim()  || null : null;
+    const peTxt     = idxPE       != null ? $(tds.eq(idxPE)).text().trim()       : "";
+    const psTxt     = idxPS       != null ? $(tds.eq(idxPS)).text().trim()       : "";
+    const mktTxt    = idxMktCap   != null ? $(tds.eq(idxMktCap)).text().trim()   || null : null;
+    const sector    = idxSector   != null ? $(tds.eq(idxSector)).text().trim()   || null : null;
     const industry  = idxIndustry != null ? $(tds.eq(idxIndustry)).text().trim() || null : null;
 
     const pe = Number(peTxt.replace(/,/g, ""));
@@ -70,25 +70,35 @@ export default async function handler(req: any, res: any) {
     const page = Math.max(0, parseInt(url.searchParams.get("page") ?? "0", 10) || 0);
     const f    = url.searchParams.get("f") ?? undefined;
 
-    // Берём две страницы: valuation (метрики) и overview (название компании)
     const [htmlVal, htmlOv] = await Promise.all([
-      fetch(buildUrl(page, f, "121"), {
-        headers: { "User-Agent": UA, Accept: "text/html,*/*" },
-      }).then(r => r.text()),
-      fetch(buildUrl(page, f, "111"), {
-        headers: { "User-Agent": UA, Accept: "text/html,*/*" },
-      }).then(r => r.text()),
+      fetch(buildUrl(page, f, "121"), { headers: { "User-Agent": UA, Accept: "text/html,*/*" } }).then(r => r.text()),
+      fetch(buildUrl(page, f, "111"), { headers: { "User-Agent": UA, Accept: "text/html,*/*" } }).then(r => r.text()),
     ]);
 
     const rowsVal = parseTable(htmlVal);
     const rowsOv  = parseTable(htmlOv);
-    const nameByTicker = new Map<string, string>();
-    rowsOv.forEach(r => { if (r.ticker && r.company) nameByTicker.set(r.ticker, r.company); });
 
-    const items = rowsVal.map(r => ({
-      ...r,
-      company: nameByTicker.get(r.ticker) ?? r.company ?? null,
-    }));
+    const metaByTicker = new Map<string, { company?: string|null; sector?: string|null; industry?: string|null }>();
+    rowsOv.forEach(r => {
+      metaByTicker.set(r.ticker, {
+        company: r.company ?? null,
+        sector: r.sector ?? null,
+        industry: r.industry ?? null,
+      });
+    });
+
+    const items = rowsVal.map(r => {
+      const meta = metaByTicker.get(r.ticker);
+      return {
+        ticker: r.ticker,
+        company:  meta?.company  ?? r.company  ?? null,
+        marketCapText: r.marketCapText ?? null,
+        peSnapshot:    r.peSnapshot    ?? null,
+        psSnapshot:    r.psSnapshot    ?? null,
+        sector:   meta?.sector   ?? r.sector   ?? null,
+        industry: meta?.industry ?? r.industry ?? null,
+      };
+    });
 
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=86400");
     res.setHeader("Content-Type", "application/json");

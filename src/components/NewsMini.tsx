@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+// src/components/NewsMini.tsx
+import { useEffect, useRef, useState } from "react";
 import Skeleton from "react-loading-skeleton";
 import styles from "./newsMini.module.css";
 
@@ -32,29 +33,50 @@ function timeAgo(sec: number) {
 export function NewsMini() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const ctrlRef = useRef<AbortController | null>(null);
+
+  const fetchNews = async () => {
+    try {
+      ctrlRef.current?.abort();
+      const ctrl = new AbortController();
+      ctrlRef.current = ctrl;
+
+      const r = await fetch("/api/fh/news?category=general", {
+        signal: ctrl.signal,
+        cache: "no-store",
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const arr = (await r.json()) as RawItem[];
+      const top = (arr ?? []).slice(0, 6).map(x => ({
+        title: x.headline,
+        source: x.source,
+        time: timeAgo(x.datetime),
+        url: x.url,
+        image: x.image && x.image.startsWith("http") ? x.image : undefined,
+      }));
+      setItems(top);
+      setErr(null);
+    } catch (e: any) {
+      // оставляем последний успешный список, не ломаем UI
+      setErr(String(e?.message || e));
+    }
+  };
 
   useEffect(() => {
-    fetch("/api/fh/news?category=general")
-      .then(r => {
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        return r.json();
-      })
-      .then((arr: RawItem[]) => {
-        const top = (arr ?? []).slice(0, 6).map(x => ({
-          title: x.headline,
-          source: x.source,
-          time: timeAgo(x.datetime),
-          url: x.url,
-          image: x.image && x.image.startsWith("http") ? x.image : undefined,
-        }));
-        setItems(top);
-      })
-      .catch(e => setErr(String(e)));
+fetchNews();
+    const id = setInterval(fetchNews, 5 * 60_000); // каждые 5 минут
+    return () => {
+      clearInterval(id);
+      ctrlRef.current?.abort();
+      const u = new URL("/api/fh/news", window.location.origin);
+      u.searchParams.set("category", "general");
+      u.searchParams.set("ts", String(Date.now())); // анти-кеш
+      fetch(u.toString(), { cache: "no-store" });
+    };
+    // внутри NewsMini useEffect:
   }, []);
 
-  if (err) return null;
-  if (!items) {
-    // лоадер (3–4 строки), чтобы не прыгала верстка
+  if (items == null) {
     return (
       <div className={styles.wrap}>
         <div className={styles.header}>Latest investing news</div>
@@ -81,8 +103,8 @@ export function NewsMini() {
           key={i}
           href={it.url}
           target="_blank"
-          rel="noreferrer"
           className={styles.item}
+          rel="noopener noreferrer nofollow"
           aria-label={`${it.title} — ${it.source}`}
         >
           <div className={styles.thumb}>

@@ -4,17 +4,15 @@ import type { FormikProps } from "formik";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
+import CryptoMarquee from "../components/CryptoMarquee";
 import { NewsMini } from "../components/NewsMini";
-import { MarketStrip } from "../components/MarketStrip";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import StockList from "../components/StockList";
 import { FilterPanel } from "../components/FilterPanel";
-import { bootstrapFromFinviz } from "../store/stocksSlice";
+import { bootstrapFromFinviz, fetchFinvizPage, fetchQuotesForTickers } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
+import { useMarketStatus } from "../hooks/useMarketStatus";
 import styles from "./home.module.css";
-
-
-
 
 type FilterValues = {
   minPrice: number | "";
@@ -27,9 +25,12 @@ export const Home = () => {
   const formikRef = useRef<FormikProps<FilterValues>>(null);
   const dispatch = useAppDispatch();
   const { items, status } = useAppSelector((s) => s.stocks);
+  const market = useMarketStatus();
+  const marketClosed = market.reason != null && !market.isOpen;
 
   const [filtered, setFiltered] = useState<Stock[]>([]);
   const [visible, setVisible] = useState(20);
+  const [pageLoaded, setPageLoaded] = useState(0);
 
   useEffect(() => {
     dispatch(bootstrapFromFinviz({ pages: 12 }));
@@ -39,6 +40,17 @@ export const Home = () => {
     setFiltered(items);
     setVisible(20);
   }, [items]);
+
+  // авто-обновление котировок для видимых карточек каждые 30с
+  useEffect(() => {
+    const id = setInterval(() => {
+      const tickers = filtered.slice(0, visible).map(s => s.ticker);
+      if (tickers.length) {
+        dispatch(fetchQuotesForTickers({ tickers }));
+      }
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [dispatch, filtered, visible]);
 
   const handleFilter = (filters: FilterValues) => {
     let result = [...items];
@@ -65,14 +77,50 @@ export const Home = () => {
 
   const canShowMore = visible < filtered.length;
 
+  const loadMore = async () => {
+    const nextVisible = Math.min(visible + 20, filtered.length);
+
+    if (nextVisible >= items.length - 5) {
+      const nextPage = pageLoaded + 1;
+      try {
+        await dispatch(fetchFinvizPage({ page: nextPage })).unwrap();
+        setPageLoaded(nextPage);
+
+        const newSlice = items.slice(items.length, items.length + 20);
+        const newTickers = newSlice.map(s => s.ticker);
+        if (newTickers.length) dispatch(fetchQuotesForTickers({ tickers: newTickers }));
+      } catch {}
+    }
+    setVisible(v => v + 20);
+  };
+
   return (
     <motion.div className={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className={styles.shell}>
         <div className={styles.panel}>
           <header className={styles.header}>
             <div>
-               <MarketStrip />
-  <NewsMini />
+              {/* Живая верхушка — крипто */}
+             <CryptoMarquee />
+
+              {/* Бейдж статуса рынка США */}
+              {marketClosed && (
+                <div style={{ margin: "4px 0 10px", opacity: .85 }}>
+                  <span
+                    style={{
+                      padding: "4px 8px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 9999,
+                      background: "rgba(255,255,255,.04)",
+                      fontSize: 12,
+                    }}
+                  >
+                    US market: {market.reason}
+                  </span>
+                </div>
+              )}
+
+              <NewsMini />
             </div>
 
             <div className={styles.filterBox}>
@@ -93,13 +141,10 @@ export const Home = () => {
           )}
 
           <main>
-            <StockList stocks={filtered.slice(0, visible)} />
+            <StockList stocks={filtered.slice(0, visible)} marketClosed={marketClosed} />
             {canShowMore && (
               <div className={styles.moreRow}>
-                <button
-                  className={styles.moreBtn}
-                  onClick={() => setVisible((v) => Math.min(v + 20, filtered.length))}
-                >
+                <button className={styles.moreBtn} onClick={loadMore}>
                   Load next 20
                 </button>
               </div>

@@ -1,4 +1,7 @@
+// src/api/loadBatch.ts
 import type { Stock } from "../types/stock";
+import { fetchJSON, mapLimit } from "../utils/http";
+import { parseCapTextToMillions, capToBandMillions } from "../utils/marketCap";
 
 /** Ответ от /api/finviz */
 type FinvizRow = {
@@ -14,54 +17,6 @@ type FinvizResp = { page: number; count: number; items: FinvizRow[] };
 
 const QUOTE_CONCURRENCY =
   Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS) || 3;
-
-/** "49.06M" | "12.83B" -> число в МЛН $ */
-function parseCapTextToMillions(txt?: string | null): number | null {
-  if (!txt) return null;
-  const s = String(txt).trim().replace(/[, ]/g, "");
-  const m = s.match(/^(\d+(?:\.\d+)?)([MBT])?$/i);
-  if (!m) return null;
-  const n = parseFloat(m[1]);
-  const u = (m[2] || "").toUpperCase();
-  if (u === "B") return Math.round(n * 1000 * 100) / 100;      // млрд → млн
-  if (u === "T") return Math.round(n * 1_000_000 * 100) / 100; // трлн → млн
-  return Math.round(n * 100) / 100;                            // млн
-}
-
-type Band = "small" | "mid" | "large";
-function capToBandMillions(mcM?: number | null): Band {
-  const mcB = mcM != null ? mcM / 1000 : 0;
-  if (mcB >= 10) return "large";
-  if (mcB >= 2) return "mid";
-  return "small";
-}
-
-async function fetchJSON<T>(url: string): Promise<T> {
-  const r = await fetch(url);
-  if (!r.ok) throw new Error(`${r.status} ${r.statusText} @ ${url}`);
-  return r.json() as Promise<T>;
-}
-
-/** ограничение параллелизма */
-async function mapLimit<T, R>(
-  arr: T[],
-  limit: number,
-  fn: (item: T, i: number) => Promise<R>
-): Promise<R[]> {
-  const out: R[] = new Array(arr.length);
-  let i = 0;
-  const workers = Array(Math.min(limit, Math.max(1, arr.length)))
-    .fill(0)
-    .map(async () => {
-      while (true) {
-        const idx = i++;
-        if (idx >= arr.length) break;
-        out[idx] = await fn(arr[idx], idx);
-      }
-    });
-  await Promise.all(workers);
-  return out;
-}
 
 /* ====== scoring (экспортируется) ====== */
 export function computeScore(s: Partial<Stock> & { price?: number | null }) {
@@ -96,7 +51,7 @@ export async function loadFinviz(page = 0, f?: string): Promise<FinvizResp> {
   const url = new URL("/api/finviz", window.location.origin);
   url.searchParams.set("page", String(page));
   if (f) url.searchParams.set("f", f);
-  return fetchJSON<FinvizResp>(url.toString());
+  return fetchJSON<FinvizResp>(url.toString(), { noStore: true });
 }
 
 /** Полный батч: finviz → котировки (c, o, h, l, pc) → мёрдж + скоринг */
@@ -109,7 +64,7 @@ export async function loadBatch(
   // базовые карточки из finviz
   const base: Stock[] = items.map((row) => {
     const mcM = parseCapTextToMillions(row.marketCapText);
-    const category = capToBandMillions(mcM);
+    const category = capToBandMillions(mcM) ?? "small";
     return {
       ticker: row.ticker,
       name: row.company ?? row.ticker,
@@ -144,7 +99,8 @@ export async function loadBatch(
 
   const quotes = await mapLimit(tickers, QUOTE_CONCURRENCY, async (symbol) => {
     const q = await fetchJSON<Quote>(
-      `/api/fh/quote?symbol=${encodeURIComponent(symbol)}`
+      `/api/fh/quote?symbol=${encodeURIComponent(symbol)}`,
+      { noStore: true }
     );
     return {
       ticker: symbol,
@@ -167,7 +123,6 @@ export async function loadBatch(
 
     const out: Stock = { ...b, price, pe, ps } as Stock;
 
-    // прокинем OHLC для карточки
     (out as any).open = q?.open ?? null;
     (out as any).high = q?.high ?? null;
     (out as any).low = q?.low ?? null;
