@@ -14,7 +14,7 @@ const Header = () => {
       <div className={styles.container}>
         <div className={styles.logoBlock}>
           <Link to="/" className={styles.logoLink}>
-            <h1 className={styles.logo}>InvAPI</h1>
+            <h1 className={styles.logo}>InvApp</h1>
           </Link>
           <h2 className={styles.subtitle}>({t("comingSoon")})</h2>
         </div>

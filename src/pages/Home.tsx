@@ -1,10 +1,10 @@
 // src/pages/Home.tsx
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormikProps } from "formik";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
-import CryptoMarquee from "../components/CryptoMarquee";
+// import CryptoMarquee from "../components/CryptoMarquee";
 import { NewsMini } from "../components/NewsMini";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import StockList from "../components/StockList";
@@ -32,25 +32,20 @@ export const Home = () => {
   const [visible, setVisible] = useState(20);
   const [pageLoaded, setPageLoaded] = useState(0);
 
+  // 1) Быстрый старт: загрузка первой страницы Finviz.
+  //    Внутри bootstrapFromFinviz уже есть однократное получение котировок для первых 20 тикеров.
   useEffect(() => {
-    dispatch(bootstrapFromFinviz({ pages: 12 }));
+    dispatch(bootstrapFromFinviz({ pages: 1 }));
   }, [dispatch]);
 
+  // 2) Когда приходят items — обновляем фильтрованное представление.
   useEffect(() => {
     setFiltered(items);
     setVisible(20);
   }, [items]);
 
-  // авто-обновление котировок для видимых карточек каждые 30с
-  useEffect(() => {
-    const id = setInterval(() => {
-      const tickers = filtered.slice(0, visible).map(s => s.ticker);
-      if (tickers.length) {
-        dispatch(fetchQuotesForTickers({ tickers }));
-      }
-    }, 30_000);
-    return () => clearInterval(id);
-  }, [dispatch, filtered, visible]);
+  // 3) Больше НИКАКИХ интервалов / авто-обновлений.
+  //    Котировки для новых элементов тянем один раз при "Load next 20" ниже.
 
   const handleFilter = (filters: FilterValues) => {
     let result = [...items];
@@ -80,19 +75,28 @@ export const Home = () => {
   const loadMore = async () => {
     const nextVisible = Math.min(visible + 20, filtered.length);
 
+    // Если уже почти дошли до конца имеющегося списка — догружаем следующую страницу Finviz
     if (nextVisible >= items.length - 5) {
       const nextPage = pageLoaded + 1;
       try {
-        await dispatch(fetchFinvizPage({ page: nextPage })).unwrap();
+        const payload = await dispatch(fetchFinvizPage({ page: nextPage })).unwrap();
         setPageLoaded(nextPage);
 
-        const newSlice = items.slice(items.length, items.length + 20);
-        const newTickers = newSlice.map(s => s.ticker);
-        if (newTickers.length) dispatch(fetchQuotesForTickers({ tickers: newTickers }));
-      } catch {}
+        // Однократно подтягиваем котировки только для новых тикеров
+        const newTickers = payload.map((s) => s.ticker);
+        if (newTickers.length) {
+          await dispatch(fetchQuotesForTickers({ tickers: newTickers, concurrency: 2 }));
+        }
+      } catch {
+        // проглатываем — кнопка останется, можно попробовать ещё раз
+      }
     }
-    setVisible(v => v + 20);
+
+    setVisible((v) => v + 20);
   };
+
+  // Чуть меньше перерендеров дочерних карточек
+  const visibleStocks = useMemo(() => filtered.slice(0, visible), [filtered, visible]);
 
   return (
     <motion.div className={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
@@ -100,12 +104,9 @@ export const Home = () => {
         <div className={styles.panel}>
           <header className={styles.header}>
             <div>
-              {/* Живая верхушка — крипто */}
-             <CryptoMarquee />
-
-              {/* Бейдж статуса рынка США */}
+              {/* <CryptoMarquee /> */}
               {marketClosed && (
-                <div style={{ margin: "4px 0 10px", opacity: .85 }}>
+                <div style={{ margin: "4px 0 10px", opacity: 0.85 }}>
                   <span
                     style={{
                       padding: "4px 8px",
@@ -119,7 +120,6 @@ export const Home = () => {
                   </span>
                 </div>
               )}
-
               <NewsMini />
             </div>
 
@@ -136,12 +136,12 @@ export const Home = () => {
 
           {status === "failed" && (
             <div style={{ color: "#ff8080", marginBottom: 12 }}>
-              Fetch failed. <button onClick={() => dispatch(bootstrapFromFinviz())}>Retry</button>
+              Fetch failed. <button onClick={() => dispatch(bootstrapFromFinviz({ pages: 1 }))}>Retry</button>
             </div>
           )}
 
           <main>
-            <StockList stocks={filtered.slice(0, visible)} marketClosed={marketClosed} />
+            <StockList stocks={visibleStocks} marketClosed={marketClosed} />
             {canShowMore && (
               <div className={styles.moreRow}>
                 <button className={styles.moreBtn} onClick={loadMore}>

@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "commonjs",
   "scripts": {
-    "dev": "vite",                
-    "dev:vercel": "vercel dev",   
+    "dev": "vite",
+    "dev:vercel": "vercel dev",
     "start": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
@@ -27,6 +27,8 @@
     "react-loading-skeleton": "^3.5.0",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.5.2",
+    "react-virtualized-auto-sizer": "^1.0.26",
+    "react-window": "^1.8.11",
     "yup": "^1.6.1"
   },
   "devDependencies": {
@@ -34,11 +36,14 @@
     "@types/node": "^24.3.0",
     "@types/react": "^19.0.10",
     "@types/react-dom": "^19.0.4",
+    "@types/react-window": "^1.8.8",
     "@vitejs/plugin-react": "^4.3.4",
+    "depcheck": "^1.4.7",
     "eslint": "^9.22.0",
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.3.0",
+    "ts-prune": "^0.10.3",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1"

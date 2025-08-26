@@ -1,12 +1,11 @@
-// src/components/StockCard.tsx
 import { Link } from "react-router-dom";
 import { motion, useAnimation, useInView } from "framer-motion";
-import { useEffect, useRef, useMemo } from "react";
+import React, { useEffect, useMemo, useRef } from "react";
 import { useFavorites } from "./FavoritesContext";
 import type { Stock } from "../types/stock";
 import styles from "./stockCard.module.css";
 
-type Props = { stock: Stock; marketClosed?: boolean };
+type Props = { stock: Stock };
 
 function capTextM(m?: number | null, text?: string | null) {
   if (text) return text;
@@ -14,14 +13,13 @@ function capTextM(m?: number | null, text?: string | null) {
   if (m >= 1000) return `${(m / 1000).toFixed(2)}B`;
   return `${m.toFixed(2)}M`;
 }
-
 function prettyCategory(cat?: string | null) {
   if (!cat) return "—";
-  const s = String(cat).toLowerCase(); // small | mid | large
+  const s = String(cat).toLowerCase();
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
+const StockCardBase: React.FC<Props> = ({ stock }) => {
   const { favorites, toggleFavorite } = useFavorites();
   const isFavorite = favorites.includes(stock.ticker);
 
@@ -32,7 +30,6 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
 
   const title = `${(stock as any)?.company ?? stock.name} (${stock.ticker})`;
 
-  // null-safe дневные показатели
   const day = useMemo(() => {
     const open = (stock as any)?.open ?? null;
     const prev = (stock as any)?.prevClose ?? null;
@@ -54,16 +51,12 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
   const openPrevText =
     day.open != null && day.prev != null
       ? `${day.open.toFixed(2)} • ${day.prev.toFixed(2)}${
-          day.openDelta != null
-            ? ` (${day.openDelta >= 0 ? "+" : ""}${day.openDelta.toFixed(2)})`
-            : ""
+          day.openDelta != null ? ` (${day.openDelta >= 0 ? "+" : ""}${day.openDelta.toFixed(2)})` : ""
         }`
       : "—";
 
   const dayRangeText =
-    day.low != null && day.high != null
-      ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}`
-      : "—";
+    day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
 
   return (
     <motion.div
@@ -77,7 +70,6 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
       }}
       className={styles.card}
     >
-      {/* заголовок + маленькая ⭐ справа сверху */}
       <div className={styles.header}>
         <h3 className={styles.title}>{title}</h3>
         <button
@@ -90,7 +82,6 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
         </button>
       </div>
 
-      {/* Market cap + Category */}
       <div className={styles.inlineRow}>
         <span className={styles.kv}>
           <span className={styles.k}>Market Cap:</span>{" "}
@@ -108,34 +99,24 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
         </span>
       </div>
 
-      {/* Price + delta (зелёный/красный) + бейдж закрытого рынка */}
       <div className={styles.priceRow}>
         <div className={styles.priceBlock}>
           <span className={styles.priceLabel}>Price:</span>
           <span className={styles.priceValue}>
             {day.price != null ? `$${day.price.toFixed(2)}` : "—"}
           </span>
-          {marketClosed && (
-            <span className={styles.badge} style={{ marginLeft: 8 }}>Market closed</span>
-          )}
         </div>
-        <span className={`${styles.delta} ${mainDeltaClass}`} style={marketClosed ? { opacity: .5 } : undefined}>
+        <span className={`${styles.delta} ${mainDeltaClass}`}>
           {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}% `}
           {day.dAbs == null ? "" : `(${day.dAbs >= 0 ? "+" : ""}${day.dAbs.toFixed(2)})`}
         </span>
       </div>
 
-      {/* Day range + Open/Prev */}
       <div className={styles.subStats}>
-        <div className={styles.range}>
-          Day range: <span>{dayRangeText}</span>
-        </div>
-        <div className={styles.xtra}>
-          Open/Prev: <span className={openPrevClass} style={marketClosed ? { opacity: .7 } : undefined}>{openPrevText}</span>
-        </div>
+        <div className={styles.range}>Day range: <span>{dayRangeText}</span></div>
+        <div className={styles.xtra}>Open/Prev: <span className={openPrevClass}>{openPrevText}</span></div>
       </div>
 
-      {/* краткие метрики */}
       <div className={styles.metrics}>
         <div>
           PE: {stock.pe ?? (stock as any).peSnapshot ?? "—"}
@@ -149,11 +130,7 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
 
       <div className={styles.ctaWrap}>
         <Link to={`/stocks/${stock.ticker}`}>
-          <motion.button
-            className={styles.viewButton}
-            whileHover={{ scale: 1.03 }}
-            whileTap={{ scale: 0.97 }}
-          >
+          <motion.button className={styles.viewButton} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
             View Details
           </motion.button>
         </Link>
@@ -162,5 +139,23 @@ const StockCard: React.FC<Props> = ({ stock, marketClosed }) => {
   );
 };
 
+// сравниваем только значимые поля, чтобы не перерисовываться зря
+function eq(a: Props, b: Props) {
+  const sa = a.stock as any;
+  const sb = b.stock as any;
+  return (
+    a.stock.ticker === b.stock.ticker &&
+    a.stock.price === b.stock.price &&
+    sa.open === sb.open &&
+    sa.high === sb.high &&
+    sa.low === sb.low &&
+    sa.prevClose === sb.prevClose &&
+    a.stock.pe === b.stock.pe &&
+    a.stock.ps === b.stock.ps &&
+    (sa.marketCapText ?? null) === (sb.marketCapText ?? null)
+  );
+}
+
+const StockCard = React.memo(StockCardBase, eq);
 export { StockCard };
 export default StockCard;

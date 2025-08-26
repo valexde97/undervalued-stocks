@@ -1,14 +1,13 @@
-// src/components/StockList.tsx
 import type { Stock } from "../types/stock";
 import StockCard from "./StockCard";
 import styles from "./stockList.module.css";
 
 type Props = {
   stocks: Stock[] | null | undefined;
-  marketClosed?: boolean;
+  marketClosed?: boolean; // можно оставить здесь, если нужно куда-то ещё
 };
 
-export default function StockList({ stocks, marketClosed }: Props) {
+export default function StockList({ stocks /*, marketClosed*/ }: Props) {
   const data = Array.isArray(stocks) ? stocks : [];
 
   if (data.length === 0) {
@@ -18,7 +17,8 @@ export default function StockList({ stocks, marketClosed }: Props) {
   return (
     <div className={styles.grid}>
       {data.map((s) => (
-        <StockCard key={s.ticker} stock={s} marketClosed={marketClosed} />
+        // убрали marketClosed, т.к. StockCard его не принимает
+        <StockCard key={s.ticker} stock={s} />
       ))}
     </div>
   );
