@@ -1,5 +1,4 @@
-// src/app/App.tsx
-import React, { Suspense } from "react";
+import React, { Suspense, useEffect } from "react";
 import { Routes, Route, useLocation } from "react-router-dom";
 import Header from "../components/Header";
 import { Footer } from "../components/Footer";
@@ -22,6 +21,16 @@ const StockDetails = React.lazy(() =>
 function App() {
   const { theme } = useTheme();
   const location = useLocation();
+
+  // Простая смена заголовка документа по маршруту (без Helmet)
+  useEffect(() => {
+    const p = location.pathname;
+    if (p === "/") document.title = "Undervalued Stocks — быстрый список недооценённых акций";
+    else if (p.startsWith("/stocks/")) document.title = "Детали акции — Undervalued Stocks";
+    else if (p === "/favorites") document.title = "Избранное — Undervalued Stocks";
+    else if (p === "/about") document.title = "О приложении — Undervalued Stocks";
+    else document.title = "Undervalued Stocks";
+  }, [location.pathname]);
 
   return (
     <>

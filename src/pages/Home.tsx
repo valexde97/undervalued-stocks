@@ -1,4 +1,3 @@
-// src/pages/Home.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormikProps } from "formik";
 import Skeleton from "react-loading-skeleton";
@@ -32,20 +31,14 @@ export const Home = () => {
   const [visible, setVisible] = useState(20);
   const [pageLoaded, setPageLoaded] = useState(0);
 
-  // 1) Быстрый старт: загрузка первой страницы Finviz.
-  //    Внутри bootstrapFromFinviz уже есть однократное получение котировок для первых 20 тикеров.
   useEffect(() => {
     dispatch(bootstrapFromFinviz({ pages: 1 }));
   }, [dispatch]);
 
-  // 2) Когда приходят items — обновляем фильтрованное представление.
   useEffect(() => {
     setFiltered(items);
     setVisible(20);
   }, [items]);
-
-  // 3) Больше НИКАКИХ интервалов / авто-обновлений.
-  //    Котировки для новых элементов тянем один раз при "Load next 20" ниже.
 
   const handleFilter = (filters: FilterValues) => {
     let result = [...items];
@@ -75,31 +68,29 @@ export const Home = () => {
   const loadMore = async () => {
     const nextVisible = Math.min(visible + 20, filtered.length);
 
-    // Если уже почти дошли до конца имеющегося списка — догружаем следующую страницу Finviz
     if (nextVisible >= items.length - 5) {
       const nextPage = pageLoaded + 1;
       try {
         const payload = await dispatch(fetchFinvizPage({ page: nextPage })).unwrap();
         setPageLoaded(nextPage);
-
-        // Однократно подтягиваем котировки только для новых тикеров
         const newTickers = payload.map((s) => s.ticker);
         if (newTickers.length) {
           await dispatch(fetchQuotesForTickers({ tickers: newTickers, concurrency: 2 }));
         }
       } catch {
-        // проглатываем — кнопка останется, можно попробовать ещё раз
+        // ignore; button remains enabled for retry
       }
     }
 
     setVisible((v) => v + 20);
   };
 
-  // Чуть меньше перерендеров дочерних карточек
   const visibleStocks = useMemo(() => filtered.slice(0, visible), [filtered, visible]);
 
   return (
     <motion.div className={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <h1 className="sr-only">Front-End React Testing App</h1>
+
       <div className={styles.shell}>
         <div className={styles.panel}>
           <header className={styles.header}>
@@ -113,7 +104,7 @@ export const Home = () => {
                       border: "1px solid var(--border)",
                       borderRadius: 9999,
                       background: "rgba(255,255,255,.04)",
-                      fontSize: 12,
+                      fontSize: 12
                     }}
                   >
                     US market: {market.reason}

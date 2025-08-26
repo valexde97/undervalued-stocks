@@ -7,11 +7,12 @@
     "dev": "vite",
     "dev:vercel": "vercel dev",
     "start": "vite",
-    "build": "tsc -b && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
+    "build": "npm run typecheck && npm run lint && vite build",
     "preview": "vite preview",
     "deploy": "vite build && gh-pages -d dist",
-    "lazy": "git add . && git commit -m 'lazy' && git push"
+    "lazy": "git add . && git commit -m \"lazy\" && git push"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.8.0",
@@ -43,7 +44,6 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "eslint-plugin-react-refresh": "^0.4.19",
     "globals": "^16.3.0",
-    "ts-prune": "^0.10.3",
     "typescript": "~5.7.2",
     "typescript-eslint": "^8.26.1",
     "vite": "^6.3.1"

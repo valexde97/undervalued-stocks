@@ -1,5 +1,5 @@
 // src/components/CryptoStrip.tsx
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type Quote = { c?: number; pc?: number; t?: number; serverTs?: number };
 
@@ -31,21 +31,26 @@ function useQuote(symbol: string, intervalMs = 20_000) {
   const [q, setQ] = useState<Quote | null>(null);
   const ctrlRef = useRef<AbortController | null>(null);
 
-  const fetchOnce = async () => {
+  const fetchOnce = useCallback(async () => {
     try {
       ctrlRef.current?.abort();
       const ctrl = new AbortController();
       ctrlRef.current = ctrl;
       const data = await fetchJSON<Quote>(`/api/fh/quote?symbol=${encodeURIComponent(symbol)}`);
       setQ(data);
-    } catch {/* silent */}
-  };
+    } catch {
+      /* silent */
+    }
+  }, [symbol]);
 
   useEffect(() => {
     fetchOnce();
     const id = setInterval(fetchOnce, intervalMs);
-    return () => { clearInterval(id); ctrlRef.current?.abort(); };
-  }, [symbol, intervalMs]);
+    return () => {
+      clearInterval(id);
+      ctrlRef.current?.abort();
+    };
+  }, [fetchOnce, intervalMs]);
 
   const pct = useMemo(() => {
     if (!q?.c || q.pc == null) return null;
@@ -63,6 +68,34 @@ function fmtPrice(p: number | null): string {
   return p.toFixed(5);
 }
 
+function QuoteChip({ label, symbol }: { label: string; symbol: string }) {
+  const { price, pct } = useQuote(symbol);
+  const color = pct == null ? "inherit" : pct >= 0 ? "#22c55e" : "#ef4444";
+
+  return (
+    <div
+      style={{
+        padding: "8px 12px",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        background: "rgba(255,255,255,.04)",
+        minWidth: 130,
+        display: "flex",
+        justifyContent: "space-between",
+        gap: 8,
+        flex: "0 0 auto",
+      }}
+      title={pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : ""}
+    >
+      <strong style={{ opacity: 0.85 }}>{label}</strong>
+      <span style={{ opacity: 0.85 }}>{fmtPrice(price)}</span>
+      <span style={{ fontWeight: 700, color }}>
+        {pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}
+      </span>
+    </div>
+  );
+}
+
 export default function CryptoStrip() {
   return (
     <div
@@ -76,33 +109,9 @@ export default function CryptoStrip() {
         scrollbarWidth: "thin",
       }}
     >
-      {SYMBOLS.map(({ key, label, symbol }) => {
-        const { price, pct } = useQuote(symbol);
-        const color = pct == null ? "inherit" : pct >= 0 ? "#22c55e" : "#ef4444";
-        return (
-          <div
-            key={key}
-            style={{
-              padding: "8px 12px",
-              border: "1px solid var(--border)",
-              borderRadius: 10,
-              background: "rgba(255,255,255,.04)",
-              minWidth: 130,
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-              flex: "0 0 auto",
-            }}
-            title={pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : ""}
-          >
-            <strong style={{ opacity: .85 }}>{label}</strong>
-            <span style={{ opacity: .85 }}>{fmtPrice(price)}</span>
-            <span style={{ fontWeight: 700, color }}>
-              {pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}
-            </span>
-          </div>
-        );
-      })}
+      {SYMBOLS.map(({ key, label, symbol }) => (
+        <QuoteChip key={key} label={label} symbol={symbol} />
+      ))}
     </div>
   );
 }

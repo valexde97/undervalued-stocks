@@ -1,9 +1,12 @@
 // vite.config.ts
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react";
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
 export default defineConfig({
-  base: "/",
+  base: '/',
   plugins: [react()],
-  // порт НЕ задаём здесь — его задаёт vercel.json через --port $PORT
-});
+  resolve: {
+    alias: { '@': '/src' }
+  }
+  // порт не задаём — vercel сам пробросит $PORT
+})
