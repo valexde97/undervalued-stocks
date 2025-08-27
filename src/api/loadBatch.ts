@@ -10,13 +10,16 @@ type FinvizRow = {
   marketCapText?: string | null; // "49.06M" | "12.83B"
   peSnapshot?: number | null;
   psSnapshot?: number | null;
+  pbSnapshot?: number | null;
   sector?: string | null;
   industry?: string | null;
+  country?: string | null;
+  price?: number | null;
+  changePct?: number | null;
 };
 type FinvizResp = { page: number; count: number; items: FinvizRow[] };
 
-const QUOTE_CONCURRENCY =
-  Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS) || 3;
+const QUOTE_CONCURRENCY = Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS) || 3;
 
 /* ====== scoring (экспортируется) ====== */
 export function computeScore(s: Partial<Stock> & { price?: number | null }) {
@@ -50,8 +53,9 @@ export function computeScore(s: Partial<Stock> & { price?: number | null }) {
 export async function loadFinviz(page = 0, f?: string): Promise<FinvizResp> {
   const url = new URL("/api/finviz", window.location.origin);
   url.searchParams.set("page", String(page));
+  url.searchParams.set("ts", String(Date.now())); // cache-bust
   if (f) url.searchParams.set("f", f);
-  return fetchJSON<FinvizResp>(url.toString(), { noStore: true });
+  return fetchJSON<FinvizResp>(url.toString(), { cache: "no-store" } as any);
 }
 
 /** Полный батч: finviz → котировки (c, o, h, l, pc) → мёрдж + скоринг */
@@ -69,7 +73,8 @@ export async function loadBatch(
       ticker: row.ticker,
       name: row.company ?? row.ticker,
       category,
-      price: null,
+      price: row.price ?? null,
+      changePct: row.changePct ?? null,
 
       pe: null,
       ps: null,
@@ -83,8 +88,10 @@ export async function loadBatch(
       marketCapText: row.marketCapText ?? null,
       peSnapshot: row.peSnapshot ?? null,
       psSnapshot: row.psSnapshot ?? null,
+      pbSnapshot: row.pbSnapshot ?? null,
       sector: row.sector ?? null,
       industry: row.industry ?? null,
+      country: row.country ?? null,
 
       potentialScore: null,
       reasons: [],
@@ -99,8 +106,8 @@ export async function loadBatch(
 
   const quotes = await mapLimit(tickers, QUOTE_CONCURRENCY, async (symbol) => {
     const q = await fetchJSON<Quote>(
-      `/api/fh/quote?symbol=${encodeURIComponent(symbol)}`,
-      { noStore: true }
+      `/api/fh/quote?symbol=${encodeURIComponent(symbol)}&ts=${Date.now()}`,
+      { cache: "no-store" } as any
     );
     return {
       ticker: symbol,
@@ -117,7 +124,7 @@ export async function loadBatch(
   // мёрдж и расчёт скоринга
   const merged = base.map<Stock>((b) => {
     const q = qMap.get(b.ticker);
-    const price = q?.price ?? null;
+    const price = q?.price ?? b.price ?? null;
     const pe = b.pe ?? b.peSnapshot ?? null;
     const ps = b.ps ?? b.psSnapshot ?? null;
 

@@ -1,3 +1,4 @@
+// src/components/StockCard.tsx
 import { Link } from "react-router-dom";
 import { motion, useAnimation, useInView } from "framer-motion";
 import React, { useEffect, useMemo, useRef } from "react";
@@ -26,7 +27,9 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
   const ref = useRef<HTMLDivElement | null>(null);
   const inView = useInView(ref, { once: true, margin: "0px 0px -10% 0px" });
   const controls = useAnimation();
-  useEffect(() => { if (inView) controls.start("visible"); }, [inView, controls]);
+  useEffect(() => {
+    if (inView) controls.start("visible");
+  }, [inView, controls]);
 
   const title = `${(stock as any)?.company ?? stock.name} (${stock.ticker})`;
 
@@ -34,23 +37,24 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
     const open = (stock as any)?.open ?? null;
     const prev = (stock as any)?.prevClose ?? null;
     const high = (stock as any)?.high ?? null;
-    const low  = (stock as any)?.low  ?? null;
+    const low = (stock as any)?.low ?? null;
     const price = stock.price ?? null;
 
     const dAbs = price != null && prev != null ? price - prev : null;
-    const dPct = dAbs != null && prev ? (dAbs / prev) * 100 : null;
+    const dPctPrimary = dAbs != null && prev ? (dAbs / prev) * 100 : null;
+    const dPct = dPctPrimary ?? (stock.changePct ?? null); // fallback to Finviz % if prevClose unknown
     const openDelta = open != null && prev != null ? open - prev : null;
 
     return { open, prev, high, low, price, dAbs, dPct, openDelta };
   }, [stock]);
 
-  const catLabel = prettyCategory((stock as any)?.category);
+  const catLabel = prettyCategory(stock.category);
   const mainDeltaClass = day.dPct != null ? (day.dPct >= 0 ? styles.up : styles.down) : "";
   const openPrevClass = day.openDelta != null ? (day.openDelta >= 0 ? styles.up : styles.down) : "";
 
   const openPrevText =
-    day.open != null && day.prev != null
-      ? `${day.open.toFixed(2)} • ${day.prev.toFixed(2)}${
+    (stock as any)?.open != null && (stock as any)?.prevClose != null
+      ? `${(stock as any).open.toFixed(2)} • ${(stock as any).prevClose.toFixed(2)}${
           day.openDelta != null ? ` (${day.openDelta >= 0 ? "+" : ""}${day.openDelta.toFixed(2)})` : ""
         }`
       : "—";
@@ -99,6 +103,27 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
         </span>
       </div>
 
+      <div className={styles.inlineRow}>
+        <span className={styles.kv}>
+          <span className={styles.k}>Sector:</span>{" "}
+          <span className={styles.v}>{stock.sector ?? "—"}</span>
+        </span>
+        <span className={styles.dot}>•</span>
+        <span className={styles.kv}>
+          <span className={styles.k}>Industry:</span>{" "}
+          <span className={styles.v}>{stock.industry ?? "—"}</span>
+        </span>
+        {stock.country ? (
+          <>
+            <span className={styles.dot}>•</span>
+            <span className={styles.kv}>
+              <span className={styles.k}>Country:</span>{" "}
+              <span className={styles.v}>{stock.country}</span>
+            </span>
+          </>
+        ) : null}
+      </div>
+
       <div className={styles.priceRow}>
         <div className={styles.priceBlock}>
           <span className={styles.priceLabel}>Price:</span>
@@ -107,24 +132,32 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
           </span>
         </div>
         <span className={`${styles.delta} ${mainDeltaClass}`}>
-          {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}% `}
-          {day.dAbs == null ? "" : `(${day.dAbs >= 0 ? "+" : ""}${day.dAbs.toFixed(2)})`}
+          {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}%`}
+          {day.dAbs != null ? ` (${day.dAbs >= 0 ? "+" : ""}${day.dAbs.toFixed(2)})` : ""}
         </span>
       </div>
 
       <div className={styles.subStats}>
-        <div className={styles.range}>Day range: <span>{dayRangeText}</span></div>
-        <div className={styles.xtra}>Open/Prev: <span className={openPrevClass}>{openPrevText}</span></div>
+        <div className={styles.range}>
+          Day range: <span>{dayRangeText}</span>
+        </div>
+        <div className={styles.xtra}>
+          Open/Prev: <span className={openPrevClass}>{openPrevText}</span>
+        </div>
       </div>
 
       <div className={styles.metrics}>
         <div>
-          PE: {stock.pe ?? (stock as any).peSnapshot ?? "—"}
+          P/E: {stock.pe ?? (stock as any).peSnapshot ?? "—"}
           {stock.pe ? "" : (stock as any).peSnapshot ? " (finviz)" : ""}
         </div>
         <div>
-          PS: {stock.ps ?? (stock as any).psSnapshot ?? "—"}
+          P/S: {stock.ps ?? (stock as any).psSnapshot ?? "—"}
           {stock.ps ? "" : (stock as any).psSnapshot ? " (finviz)" : ""}
+        </div>
+        <div>
+          P/B: {stock.pb ?? (stock as any).pbSnapshot ?? "—"}
+          {stock.pb ? "" : (stock as any).pbSnapshot ? " (finviz)" : ""}
         </div>
       </div>
 
@@ -139,20 +172,23 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
   );
 };
 
-// сравниваем только значимые поля, чтобы не перерисовываться зря
 function eq(a: Props, b: Props) {
   const sa = a.stock as any;
   const sb = b.stock as any;
   return (
     a.stock.ticker === b.stock.ticker &&
     a.stock.price === b.stock.price &&
+    a.stock.changePct === b.stock.changePct &&
     sa.open === sb.open &&
     sa.high === sb.high &&
     sa.low === sb.low &&
     sa.prevClose === sb.prevClose &&
     a.stock.pe === b.stock.pe &&
     a.stock.ps === b.stock.ps &&
-    (sa.marketCapText ?? null) === (sb.marketCapText ?? null)
+    (sa.marketCapText ?? null) === (sb.marketCapText ?? null) &&
+    (a.stock.sector ?? null) === (b.stock.sector ?? null) &&
+    (a.stock.industry ?? null) === (b.stock.industry ?? null) &&
+    (a.stock.country ?? null) === (b.stock.country ?? null)
   );
 }
 

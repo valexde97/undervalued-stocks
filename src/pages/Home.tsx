@@ -1,9 +1,9 @@
+// src/pages/Home.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormikProps } from "formik";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
-// import CryptoMarquee from "../components/CryptoMarquee";
 import { NewsMini } from "../components/NewsMini";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import StockList from "../components/StockList";
@@ -23,7 +23,7 @@ type FilterValues = {
 export const Home = () => {
   const formikRef = useRef<FormikProps<FilterValues>>(null);
   const dispatch = useAppDispatch();
-  const { items, status } = useAppSelector((s) => s.stocks);
+  const { items, status, hasMore } = useAppSelector((s) => s.stocks);
   const market = useMarketStatus();
   const marketClosed = market.reason != null && !market.isOpen;
 
@@ -63,12 +63,17 @@ export const Home = () => {
     setVisible(20);
   };
 
-  const canShowMore = visible < filtered.length;
+  // показываем кнопку, если:
+  // - скрыты ещё карточки (visible < filtered.length), ИЛИ
+  // - бэкенд может отдать следующую страницу (hasMore)
+  const canShowMore = visible < filtered.length || hasMore;
 
   const loadMore = async () => {
-    const nextVisible = Math.min(visible + 20, filtered.length);
+    // показать ещё 20 из уже отфильтрованных
+    setVisible((v) => Math.min(v + 20, filtered.length + 20));
 
-    if (nextVisible >= items.length - 5) {
+    // и параллельно попробовать подтянуть следующую страницу, если есть
+    if (hasMore) {
       const nextPage = pageLoaded + 1;
       try {
         const payload = await dispatch(fetchFinvizPage({ page: nextPage })).unwrap();
@@ -78,11 +83,9 @@ export const Home = () => {
           await dispatch(fetchQuotesForTickers({ tickers: newTickers, concurrency: 2 }));
         }
       } catch {
-        // ignore; button remains enabled for retry
+        // оставляем кнопку — пользователь сможет повторить
       }
     }
-
-    setVisible((v) => v + 20);
   };
 
   const visibleStocks = useMemo(() => filtered.slice(0, visible), [filtered, visible]);
@@ -95,7 +98,6 @@ export const Home = () => {
         <div className={styles.panel}>
           <header className={styles.header}>
             <div>
-              {/* <CryptoMarquee /> */}
               {marketClosed && (
                 <div style={{ margin: "4px 0 10px", opacity: 0.85 }}>
                   <span
@@ -104,7 +106,7 @@ export const Home = () => {
                       border: "1px solid var(--border)",
                       borderRadius: 9999,
                       background: "rgba(255,255,255,.04)",
-                      fontSize: 12
+                      fontSize: 12,
                     }}
                   >
                     US market: {market.reason}
@@ -132,7 +134,7 @@ export const Home = () => {
           )}
 
           <main>
-            <StockList stocks={visibleStocks} marketClosed={marketClosed} />
+            <StockList stocks={visibleStocks} />
             {canShowMore && (
               <div className={styles.moreRow}>
                 <button className={styles.moreBtn} onClick={loadMore}>
