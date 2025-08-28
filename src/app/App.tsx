@@ -32,28 +32,26 @@ function App() {
     else document.title = "Undervalued Stocks";
   }, [location.pathname]);
 
+  // Важно: вместо tailwind-классов для фона используем наши токены темы
+  const themeClass = theme === "light" ? "light-theme" : "dark-theme";
+
   return (
-    <>
-      <div
-        className={theme === "light" ? "bg-white text-black" : "bg-gray-900 text-white"}
-        style={{ minHeight: "100vh" }}
-      >
-        <Header />
-        <Main>
-          <AnimatePresence mode="wait">
-            <Suspense fallback={<div className="p-6">Loading…</div>}>
-              <Routes location={location} key={location.pathname}>
-                <Route path="/" element={<Home />} />
-                <Route path="/favorites" element={<Favorites />} />
-                <Route path="/about" element={<About />} />
-                <Route path="/stocks/:ticker" element={<StockDetails />} />
-              </Routes>
-            </Suspense>
-          </AnimatePresence>
-        </Main>
-        <Footer />
-      </div>
-    </>
+    <div className={themeClass} style={{ minHeight: "100vh" }}>
+      <Header />
+      <Main>
+        <AnimatePresence mode="wait">
+          <Suspense fallback={<div className="p-6">Loading…</div>}>
+            <Routes location={location} key={location.pathname}>
+              <Route path="/" element={<Home />} />
+              <Route path="/favorites" element={<Favorites />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/stocks/:ticker" element={<StockDetails />} />
+            </Routes>
+          </Suspense>
+        </AnimatePresence>
+      </Main>
+      <Footer />
+    </div>
   );
 }
 

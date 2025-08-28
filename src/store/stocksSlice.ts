@@ -13,14 +13,14 @@ type StocksState = {
   error?: string;
   symbolPage: number;
   symbolsPerPage: number;
-  hasMore: boolean; // NEW
+  hasMore: boolean;
 };
 const initialState: StocksState = {
   items: [],
   status: "idle",
   symbolPage: Number(localStorage.getItem("symbols_page_v1") || 0),
   symbolsPerPage: 60,
-  hasMore: true, // предполагаем, что страницы есть, пока не докажем обратное
+  hasMore: true,
 };
 
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
@@ -39,15 +39,8 @@ let globalBackoffUntil = 0;
 const PER_SYMBOL_COOLDOWN_MS = 0;
 const GLOBAL_BACKOFF_MS = 30_000;
 
-export const bootstrapFromFinviz = createAsyncThunk<
-  Stock[],
-  { pages?: number; quotesConcurrency?: number } | void
->("stocks/bootstrapFromFinviz", async (arg = {}, { dispatch }) => {
-  const pages = (arg as any)?.pages ?? 1;
-  const conc = (arg as any)?.quotesConcurrency ?? Math.max(1, Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS || 2));
-
-  const { items } = await loadFinviz(0);
-  const base: Stock[] = items.map((row: any) => {
+function mapFinvizItemsToStocks(rows: any[]): Stock[] {
+  return rows.map((row: any) => {
     const capM = parseCapTextToMillions(row.marketCapText ?? null);
     const category = capToBandMillions(capM) ?? "small";
     const s: Stock = {
@@ -84,6 +77,16 @@ export const bootstrapFromFinviz = createAsyncThunk<
     };
     return s;
   });
+}
+
+export const bootstrapFromFinviz = createAsyncThunk<
+  Stock[],
+  { pages?: number; quotesConcurrency?: number } | void
+>("stocks/bootstrapFromFinviz", async (arg = {}, { dispatch }) => {
+  const conc = (arg as any)?.quotesConcurrency ?? Math.max(1, Number(import.meta.env.VITE_FINNHUB_QUOTE_RPS || 2));
+
+  const { items } = await loadFinviz(0); // page=0 (с доливкой до 20 на бэке)
+  const base: Stock[] = mapFinvizItemsToStocks(items);
 
   // показать сразу
   dispatch(setStocks(base));
@@ -94,56 +97,28 @@ export const bootstrapFromFinviz = createAsyncThunk<
     await dispatch(fetchQuotesForTickers({ tickers, concurrency: conc }));
   }
 
-  // фоновая предзагрузка страниц (если просили)
-  if (pages > 1) {
-    for (let p = 1; p < pages; p++) {
-      void dispatch(fetchFinvizPage({ page: p }));
-    }
-  }
+  // префетч: подгружаем "в стол" следующую страницу (строгую)
+  void dispatch(fetchFinvizPage({ page: 1 }));
 
   return base;
 });
 
 export const fetchFinvizPage = createAsyncThunk<Stock[], { page: number }>("stocks/fetchFinvizPage", async ({ page }) => {
-  const { items } = await loadFinviz(page);
-  const payload: Stock[] = items.map((row: any) => {
-    const capM = parseCapTextToMillions(row.marketCapText ?? null);
-    const category = capToBandMillions(capM) ?? "small";
-    return {
-      ticker: row.ticker,
-      name: row.company ?? row.ticker,
-      category,
+  const { items } = await loadFinviz(page); // page>=1 — строгая 20-ка
+  return mapFinvizItemsToStocks(items);
+});
 
-      price: row.price ?? null,
-      changePct: row.changePct ?? null,
-
-      pe: null,
-      ps: null,
-      pb: null,
-      currentRatio: null,
-      debtToEquity: null,
-      grossMargin: null,
-      netMargin: null,
-
-      marketCap: capM,
-      marketCapText: row.marketCapText ?? null,
-
-      peSnapshot: row.peSnapshot ?? null,
-      psSnapshot: row.psSnapshot ?? null,
-      pbSnapshot: row.pbSnapshot ?? null,
-
-      sector: row.sector ?? null,
-      industry: row.industry ?? null,
-      country: row.country ?? null,
-
-      beta: row.beta ?? null,
-      dividendYield: row.dividendYield ?? null,
-
-      potentialScore: null,
-      reasons: [],
-    } as Stock;
-  });
-  return payload;
+// новый thunk: грузим текущую страницу и префетчим следующую
+export const fetchFinvizPageWithPrefetch = createAsyncThunk<
+  { payload: Stock[]; page: number },
+  { page: number }
+>("stocks/fetchFinvizPageWithPrefetch", async ({ page }, { dispatch }) => {
+  const payload = await dispatch(fetchFinvizPage({ page })).unwrap();
+  // тихий префетч следующей страницы, если текущая была полной 20-кой
+  if (payload.length === 20) {
+    void dispatch(fetchFinvizPage({ page: page + 1 }));
+  }
+  return { payload, page };
 });
 
 export const fetchQuotesForTickers = createAsyncThunk<void, { tickers: string[]; concurrency?: number }>(
@@ -196,8 +171,7 @@ const stocksSlice = createSlice({
     setStocks(state, action: PayloadAction<Stock[]>) {
       state.items = action.payload;
       state.status = "succeeded";
-      // если первая страница вернула мало (например 9), ещё могут быть страницы
-      state.hasMore = true;
+      state.hasMore = action.payload.length === 20; // если 20 — скорее всего есть следующая
     },
     addStocks(state, action: PayloadAction<Stock[]>) {
       addStocksReducer(state, action.payload);
@@ -220,7 +194,7 @@ const stocksSlice = createSlice({
       .addCase(bootstrapFromFinviz.fulfilled, (state, action: PayloadAction<Stock[]>) => {
         state.status = "succeeded";
         if (!state.items.length) state.items = action.payload;
-        state.hasMore = true;
+        state.hasMore = action.payload.length === 20;
       })
       .addCase(bootstrapFromFinviz.rejected, (state, action) => {
         state.status = "failed";
@@ -231,12 +205,17 @@ const stocksSlice = createSlice({
         if (i !== -1) state.items[i] = { ...state.items[i], ...action.payload };
       })
       .addCase(fetchFinvizPage.fulfilled, (state, action) => {
-        const countBefore = state.items.length;
+        const before = state.items.length;
         addStocksReducer(state, action.payload);
-        const countAfter = state.items.length;
-        const added = countAfter - countBefore;
-        // если страница ничего не добавила — считаем, что страниц больше нет
-        state.hasMore = added > 0;
+        const after = state.items.length;
+        state.hasMore = action.payload.length === 20 && after > before;
+      })
+      .addCase(fetchFinvizPageWithPrefetch.fulfilled, (state, action) => {
+        const { payload } = action.payload;
+        const before = state.items.length;
+        addStocksReducer(state, payload);
+        const after = state.items.length;
+        state.hasMore = payload.length === 20 && after > before;
       });
   },
 });

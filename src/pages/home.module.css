@@ -1,49 +1,80 @@
-/* ... остальное оставь ... */
-
-.header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 14px;
+.page {
+  padding: 8px 12px 24px;
 }
 
-/* Компактная коробка фильтра: меньше карточки! */
-.filterBox { min-width: 260px; max-width: 300px; }
-.filterCardSlim {
-  background: var(--card-bg);
+/* Ограничиваем ширину приложения и центрируем */
+.container {
+  max-width: 1180px;      /* можешь поставить 1200/1240 по вкусу */
+  margin: 0 auto;
+}
+
+.topBar { margin: 4px 0 10px; }
+
+.hero {
+  display: grid;
+  place-items: start;
+  gap: 6px;
+  margin: 8px 0 14px;
+}
+
+.marketBadge {
+  padding: 4px 8px;
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 12px;
+  border-radius: 9999px;
+  background: rgba(255,255,255,.04);
+  font-size: 12px;
+  opacity: .9;
 }
 
-/* Ужимаем внутренности FilterPanel без правок его исходников */
-.filterCardSlim :global(label) { font-size: 0.9rem; }
-.filterCardSlim :global(select),
-.filterCardSlim :global(input),
-.filterCardSlim :global(button) {
-  height: 34px;
-  font-size: 0.95rem;
-}
-.filterCardSlim :global(button) {
-  height: 36px;
-  border-radius: 10px;
-  padding: 0 10px;
-}
-
-/* Кнопка подгрузки */
-.moreRow {
-  display: flex; justify-content: center; margin: 16px 0 4px;
-}
-.moreBtn {
-  padding: 10px 14px;
-  border-radius: 10px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.08);
+.title {
+  margin: 0;
+  font-weight: 800;
+  font-size: clamp(22px, 3vw, 32px);
   color: var(--text-light);
-  cursor: pointer;
 }
-[data-theme="light"] .moreBtn {
-  background: #f1f5f9; color: #0f172a; border-color: #d2d6dc;
+
+.subtitle {
+  margin: 0;
+  opacity: .85;
+  font-size: 14px;
 }
-.moreBtn:hover { filter: brightness(1.05); }
+
+/* Новости + правая колонка */
+.headerGrid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: 1fr;
+  align-items: start;
+  margin-bottom: 16px;
+}
+
+.newsCol, .sideCol { min-width: 0; }
+
+/* На десктопе — две колонки,
+   правая фиксированной «удобной» ширины */
+@media (min-width: 980px) {
+  .headerGrid {
+    grid-template-columns: minmax(0, 1fr) 360px;
+  }
+  .sideCol { position: sticky; top: 12px; }
+}
+
+.listArea { margin-top: 6px; }
+
+.moreRow {
+  display: grid;
+  place-items: center;
+  margin-top: 16px;
+}
+
+.moreBtn {
+  padding: 10px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--cta-bg);
+  color: var(--cta-text);
+  font-weight: 700;
+}
+
+.skeletonWrap { margin: 8px 0; }
+.error { color: #ff8080; margin-bottom: 12px; }

@@ -1,0 +1,82 @@
+.wrap {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 10px;
+}
+
+.header {
+  font-weight: 800;
+  opacity: .9;
+}
+
+/* Вертикальный список из 3 карточек */
+.list {
+  display: grid;
+  gap: 10px;
+}
+
+/* Карточка крупнее, чтобы «сильные цифры» читались */
+.card {
+  background: color-mix(in srgb, var(--card-bg) 96%, black 4%);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px;
+  display: grid;
+  gap: 10px;
+  transition: transform .08s ease, box-shadow .12s ease, background .12s ease;
+}
+.card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(0,0,0,.25);
+}
+
+.rowHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ticker {
+  margin: 0;
+  font-weight: 900;
+  letter-spacing: .4px;
+  font-size: 18px;
+  color: var(--text-light);
+}
+
+.delta { font-weight: 800; font-size: 18px; }
+.up { color: #22c55e; }
+.down { color: #ef4444; }
+
+.name {
+  font-size: 13px;
+  opacity: .85;
+  min-height: 1.2em;
+}
+
+.kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 15px;
+}
+.k { opacity: .75; }
+.v { font-weight: 800; }
+
+.cta {
+  display: inline-grid;
+  place-items: center;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--cta-bg);
+  color: var(--cta-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+.cta:hover { filter: brightness(1.05); text-decoration: none; }
