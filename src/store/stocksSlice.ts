@@ -40,7 +40,7 @@ const initialState: StocksState = {
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
 
 // ----------------------------------------------------------------------------
-// Helpers
+
 // ----------------------------------------------------------------------------
 const addStocksReducer = (state: StocksState, payload: Stock[]) => {
   const byTicker = new Map(state.items.map((s) => [s.ticker, s] as const));
