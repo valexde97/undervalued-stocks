@@ -5,52 +5,49 @@ const TICKER_OK = /^[A-Z][A-Z0-9.\-]*$/;
 
 function toNum(s?: string | null): number | null {
   if (!s) return null;
-  const x = s.replace(/[,%$]/g, "").replace(/,/g, "").trim();
-  if (!x || x === "-" || x === "—") return null;
+  const x = String(s).replace(/[,%$]/g, "").replace(/,/g, "").trim();
+  if (!x || x === "-" || x === "—" || x.toLowerCase() === "n/a") return null;
   const n = Number(x);
   return Number.isFinite(n) ? n : null;
 }
 
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().replace(/\s+/g, " ").trim();
+}
+
 function pickMainTable($: cheerio.CheerioAPI) {
-  const metas = $("table")
+  // предпочтительно основная таблица Finviz
+  let $t = $("table.table-light").first();
+  if ($t.length) return $t;
+
+  // запасной вариант — таблица с заголовком 'Ticker' или ссылками на quote.ashx
+  const candidates = $("table")
     .toArray()
     .map((el) => {
-      const $t = $(el);
-      const headers = $t
-        .find("thead th, thead td, tr:first-child th, tr:first-child td")
-        .toArray()
-        .map((th) => $(th).text().trim().toLowerCase());
-      const hasTickerHeader = headers.some((h) => h.includes("ticker"));
-      const quoteLinks = $t.find('a[href*="quote.ashx?t="],a[href*="quote.ashx?"]').length;
-      const bodyRows = $t.find("tbody tr").length || $t.find("tr").length;
-      const isLikelyData = hasTickerHeader && quoteLinks >= 10;
-      return { $t, quoteLinks, bodyRows, isLikelyData };
-    });
+      const $el = $(el);
+      const theadText = $el.find("thead").text().toLowerCase();
+      const hasTicker = /ticker/.test(theadText) || $el.find('a[href*="quote.ashx"]').length > 0;
+      const rows = $el.find("tbody tr").length || $el.find("tr").length - 1;
+      return { $el, score: (hasTicker ? 10 : 0) + rows };
+    })
+    .sort((a, b) => b.score - a.score);
 
-  const picked =
-    metas
-      .filter((m) => m.isLikelyData)
-      .sort((a, b) => b.quoteLinks - a.quoteLinks || (b.bodyRows || 0) - (a.bodyRows || 0))[0] ?? null;
-
-  return { picked };
+  return candidates.length ? candidates[0].$el : null;
 }
 
 function indexHeaders(headers: string[]) {
-  const find = (needle: string, alt?: string[]) => {
-    const ndl = needle.toLowerCase();
-    const idx1 = headers.findIndex((h) => h.includes(ndl));
-    if (idx1 >= 0) return idx1;
-    if (alt?.length) {
-      for (const a of alt) {
-        const i = headers.findIndex((h) => h.includes(a.toLowerCase()));
-        if (i >= 0) return i;
-      }
+  const find = (...needles: string[]) => {
+    const n = needles.map((s) => s.toLowerCase());
+    for (let i = 0; i < headers.length; i++) {
+      const h = headers[i];
+      if (n.some((x) => h.includes(x))) return i;
     }
     return -1;
   };
+
   return {
-    idxTicker: find("ticker"),
-    idxCompany: find("company"),
+    idxTicker: find("ticker", "symbol"),
+    idxCompany: find("company", "name"),
     idxSector: find("sector"),
     idxIndustry: find("industry"),
     idxCountry: find("country"),
@@ -59,18 +56,19 @@ function indexHeaders(headers: string[]) {
     idxPS: find("p/s"),
     idxPB: find("p/b"),
     idxPrice: find("price"),
-    idxChange: find("change"),
+    idxChange: find("change", "change %"),
     idxVolume: find("volume"),
   };
 }
 
 function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
   const headers = table
-    .find("thead th, thead td, tr:first-child th, tr:first-child td")
-    .toArray()
-    .map((th) => $(th).text().trim().toLowerCase());
+    .find("thead tr th")
+    .map((_, th) => normalizeHeader($(th).text()))
+    .get();
 
   const idx = indexHeaders(headers);
+
   const bodyRows = table.find("tbody tr");
   const rows = bodyRows.length ? bodyRows : table.find("tr").slice(1);
 
@@ -81,21 +79,17 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
     const tds = $tr.find("td");
     if (!tds.length) return;
 
-    // Тикер только из ссылки quote.ashx?t=...
+    // предпочитаем тикер из ссылки quote.ashx
     let ticker = "";
-    $tr.find('a[href*="quote.ashx?t="],a[href*="quote.ashx?"]').each((__i, a) => {
-      const href = String($(a).attr("href") || "");
-      const upper = href.toUpperCase();
-      const m = upper.match(/[?&]T=([A-Z0-9.\-]+)\b/);
-      if (m && TICKER_OK.test(m[1])) {
-        ticker = m[1];
-        return false; // break
-      }
-      return undefined;
-    });
-    if (!ticker) return;
+    const link = $tr.find('a[href*="quote.ashx"]').first();
+    if (link.length) ticker = (link.text() || "").trim();
 
-    const get = (i?: number) => (i != null && i >= 0 ? $(tds.eq(i)).text().trim() : "");
+    if (!TICKER_OK.test(ticker) && idx.idxTicker >= 0 && idx.idxTicker < tds.length) {
+      ticker = $(tds[idx.idxTicker]).text().trim();
+    }
+    if (!TICKER_OK.test(ticker)) return; // пропускаем мусор
+
+    const get = (i?: number) => (i != null && i >= 0 && i < tds.length ? $(tds[i]).text().trim() : "");
 
     const obj: any = { ticker };
 
@@ -126,8 +120,10 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
     const price = toNum(get(idx.idxPrice));
     if (price != null) obj.price = price;
 
-    const chg = toNum(get(idx.idxChange));
-    if (chg != null) obj.changePct = chg;
+    const chg = get(idx.idxChange);
+    // Finviz хранит change как '1.23%' — toNum уже снимает %
+    const chgNum = toNum(chg);
+    if (chgNum != null) obj.changePct = chgNum;
 
     const vol = get(idx.idxVolume);
     if (vol) obj.volumeText = vol;
@@ -135,7 +131,7 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
     out.push(obj);
   });
 
-  // Мерж по тикеру (если было несколько строк)
+  // merge по тикеру (на всякий случай)
   const map = new Map<string, any>();
   for (const r of out) map.set(r.ticker, { ...(map.get(r.ticker) || {}), ...r });
   return Array.from(map.values());
@@ -143,7 +139,7 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
 
 export function parseTable(html: string) {
   const $ = cheerio.load(html);
-  const { picked } = pickMainTable($);
-  if (!picked) return [] as any[];
-  return parsePickedTable($, picked.$t);
+  const $table = pickMainTable($);
+  if (!$table || !$table.length) return [] as any[];
+  return parsePickedTable($, $table);
 }

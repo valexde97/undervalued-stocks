@@ -1,97 +1,112 @@
-// src/components/CryptoMarquee.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
-import styles from "./cryptoMarquee.module.css";
 
-type Quote = { c?: number; pc?: number; t?: number; serverTs?: number };
+type Quote = { c?: number; pc?: number; t?: number };
+type Item = { symbol: string; quote: Quote | null; cached?: boolean };
+type Batch = { items: Item[]; serverTs?: number; backoffUntil?: number };
 
-const SYMBOLS: { key: string; label: string; symbol: string }[] = [
-  { key: "BTC",  label: "BTC",  symbol: "BINANCE:BTCUSDT" },
-  { key: "ETH",  label: "ETH",  symbol: "BINANCE:ETHUSDT" },
-  { key: "SOL",  label: "SOL",  symbol: "BINANCE:SOLUSDT" },
-  { key: "BNB",  label: "BNB",  symbol: "BINANCE:BNBUSDT" },
-  { key: "XRP",  label: "XRP",  symbol: "BINANCE:XRPUSDT" },
-  { key: "ADA",  label: "ADA",  symbol: "BINANCE:ADAUSDT" },
-  { key: "DOGE", label: "DOGE", symbol: "BINANCE:DOGEUSDT" },
-  { key: "AVAX", label: "AVAX", symbol: "BINANCE:AVAXUSDT" },
-  { key: "TON",  label: "TON",  symbol: "BINANCE:TONUSDT" },
-  { key: "LINK", label: "LINK", symbol: "BINANCE:LINKUSDT" },
-  { key: "DOT",  label: "DOT",  symbol: "BINANCE:DOTUSDT" },
-  { key: "MATIC",label: "MATIC",symbol: "BINANCE:MATICUSDT" },
-  { key: "LTC",  label: "LTC",  symbol: "BINANCE:LTCUSDT" },
+const SYMBOLS = [
+  "BINANCE:BTCUSDT",
+  "BINANCE:ETHUSDT",
+  "BINANCE:BNBUSDT",
+  "BINANCE:XRPUSDT",
+  "BINANCE:SOLUSDT",
+  "BINANCE:ADAUSDT",
 ];
 
-async function fetchJSON<T>(url: string): Promise<T> {
-  const u = new URL(url, window.location.origin);
-  u.searchParams.set("ts", String(Date.now()));
+function short(sym: string) {
+  // BINANCE:BTCUSDT -> BTC
+  const m = sym.match(/:([A-Z]+)USDT$/);
+  return m ? m[1] : sym;
+}
+
+async function fetchBatch(symbols: string[]): Promise<Batch> {
+  const u = new URL("/api/fh/quotes-batch", window.location.origin);
+  u.searchParams.set("symbols", symbols.join(","));
+  // один запрос раз в интервал — не трогаем кэш браузера
   const r = await fetch(u.toString(), { cache: "no-store" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
 }
 
-function useQuote(symbol: string, intervalMs = 20_000) {
-  const [q, setQ] = useState<Quote | null>(null);
-  const ctrlRef = useRef<AbortController | null>(null);
+export default function CryptoMarquee() {
+  const [data, setData] = useState<Item[]>([]);
+  const [pausedUntil, setPausedUntil] = useState<number | null>(null);
+  const tickRef = useRef<number | null>(null);
 
-  const fetchOnce = async () => {
+  const poll = async () => {
+    if (pausedUntil && Date.now() < pausedUntil) return;
     try {
-      ctrlRef.current?.abort();
-      const ctrl = new AbortController();
-      ctrlRef.current = ctrl;
-      const data = await fetchJSON<Quote>(`/api/fh/quote?symbol=${encodeURIComponent(symbol)}`);
-      setQ(data);
-    } catch { /* silent */ }
+      const res = await fetchBatch(SYMBOLS);
+      setData(res.items || []);
+      if (res.backoffUntil && res.backoffUntil > Date.now()) {
+        setPausedUntil(res.backoffUntil);
+      } else {
+        setPausedUntil(null);
+      }
+    } catch {
+      // на ошибке — попробуем позже
+    }
   };
 
   useEffect(() => {
-    fetchOnce();
-    const id = setInterval(fetchOnce, intervalMs);
-    return () => { clearInterval(id); ctrlRef.current?.abort(); };
-  }, [symbol, intervalMs]);
+    void poll(); // первый запрос сразу
+    const id = window.setInterval(poll, 20_000);
+    tickRef.current = id;
+    return () => {
+      if (tickRef.current != null) window.clearInterval(tickRef.current);
+    };
+  }, []);
 
-  const pct = useMemo(() => {
-    if (!q?.c || q.pc == null) return null;
-    return ((q.c - q.pc) / (q.pc || 1)) * 100;
-  }, [q]);
+  const rows = useMemo(() => {
+    return SYMBOLS.map((sym) => {
+      const it = data.find((x) => x.symbol === sym);
+      const c = it?.quote?.c ?? null;
+      const pc = it?.quote?.pc ?? null;
+      const pct = c != null && pc != null && pc !== 0 ? ((c - pc) / pc) * 100 : null;
+      return { sym, label: short(sym), c, pct, cached: !!it?.cached };
+    });
+  }, [data]);
 
-  return { price: q?.c ?? null, pct };
-}
-
-function fmtPrice(p: number | null): string {
-  if (p == null) return "—";
-  if (p >= 100) return p.toFixed(0);
-  if (p >= 10)  return p.toFixed(2);
-  if (p >= 1)   return p.toFixed(3);
-  return p.toFixed(5);
-}
-
-function Chip({ label, symbol }: { label: string; symbol: string }) {
-  const { price, pct } = useQuote(symbol);
-  const color = pct == null ? "inherit" : pct >= 0 ? "#22c55e" : "#ef4444";
   return (
-    <div className={styles.chip} title={pct != null ? `${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%` : ""}>
-      <strong className={styles.label}>{label}</strong>
-      <span className={styles.price}>{fmtPrice(price)}</span>
-      <span className={styles.pct} style={{ color }}>
-        {pct != null ? (pct >= 0 ? "+" : "") + pct.toFixed(2) + "%" : ""}
-      </span>
-    </div>
-  );
-}
-
-/** Непрерывная лента: дублируем контент 2 раза для бесшовного зацикливания */
-export default function CryptoMarquee() {
-  return (
-    <div className={styles.viewport} aria-label="Live crypto ticker">
-      <div className={styles.track} role="list">
-        {SYMBOLS.map(({ key, label, symbol }) => (
-          <div key={key} role="listitem"><Chip label={label} symbol={symbol} /></div>
-        ))}
-      </div>
-      <div className={`${styles.track} ${styles.clone}`} aria-hidden="true">
-        {SYMBOLS.map(({ key, label, symbol }) => (
-          <div key={`${key}-clone`}><Chip label={label} symbol={symbol} /></div>
-        ))}
-      </div>
+    <div style={{
+      display: "flex",
+      gap: 8,
+      overflowX: "auto",
+      padding: "4px 2px",
+      alignItems: "center"
+    }}>
+      {rows.map((r) => (
+        <div
+          key={r.sym}
+          style={{
+            display: "flex",
+            gap: 8,
+            padding: "4px 8px",
+            border: "1px solid var(--border)",
+            borderRadius: 999,
+            whiteSpace: "nowrap",
+            background: "rgba(255,255,255,.04)",
+            opacity: r.cached ? 0.8 : 1,
+          }}
+          title={
+            r.pct != null ? `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%` : ""
+          }
+        >
+          <strong style={{ opacity: .85 }}>{r.label}</strong>
+          <span style={{ opacity: .85 }}>{r.c != null ? r.c.toFixed(2) : "—"}</span>
+          <span style={{
+            fontWeight: 600,
+            color: r.pct != null ? (r.pct >= 0 ? "#22c55e" : "#ef4444") : "inherit"
+          }}>
+            {r.pct != null ? (r.pct >= 0 ? "+" : "") + r.pct.toFixed(2) + "%" : ""}
+          </span>
+        </div>
+      ))}
+      {pausedUntil && Date.now() < pausedUntil && (
+        <span style={{ marginLeft: 8, fontSize: 12, opacity: .75 }}>
+          rate-limited… retry {Math.ceil((pausedUntil - Date.now()) / 1000)}s
+        </span>
+      )}
     </div>
   );
 }

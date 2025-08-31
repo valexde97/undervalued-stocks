@@ -42,7 +42,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
 
     const dAbs = price != null && prev != null ? price - prev : null;
     const dPctPrimary = dAbs != null && prev ? (dAbs / prev) * 100 : null;
-    const dPct = dPctPrimary ?? (stock.changePct ?? null); // fallback to Finviz % if prevClose unknown
+    const dPct = dPctPrimary ?? (stock.changePct ?? null); // если нет prevClose — используем % с Finviz
     const openDelta = open != null && prev != null ? open - prev : null;
 
     return { open, prev, high, low, price, dAbs, dPct, openDelta };
@@ -59,8 +59,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
         }`
       : "—";
 
-  const dayRangeText =
-    day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
+  const dayRangeText = day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
 
   return (
     <motion.div
@@ -89,9 +88,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       <div className={styles.inlineRow}>
         <span className={styles.kv}>
           <span className={styles.k}>Market Cap:</span>{" "}
-          <span className={styles.v}>
-            {capTextM(stock.marketCap ?? null, (stock as any)?.marketCapText)}
-          </span>
+          <span className={styles.v}>{capTextM(stock.marketCap ?? null, (stock as any)?.marketCapText)}</span>
         </span>
         <span className={styles.dot}>•</span>
         <span className={styles.kv}>
@@ -105,20 +102,17 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
 
       <div className={styles.inlineRow}>
         <span className={styles.kv}>
-          <span className={styles.k}>Sector:</span>{" "}
-          <span className={styles.v}>{stock.sector ?? "—"}</span>
+          <span className={styles.k}>Sector:</span> <span className={styles.v}>{stock.sector ?? "—"}</span>
         </span>
         <span className={styles.dot}>•</span>
         <span className={styles.kv}>
-          <span className={styles.k}>Industry:</span>{" "}
-          <span className={styles.v}>{stock.industry ?? "—"}</span>
+          <span className={styles.k}>Industry:</span> <span className={styles.v}>{stock.industry ?? "—"}</span>
         </span>
         {stock.country ? (
           <>
             <span className={styles.dot}>•</span>
             <span className={styles.kv}>
-              <span className={styles.k}>Country:</span>{" "}
-              <span className={styles.v}>{stock.country}</span>
+              <span className={styles.k}>Country:</span> <span className={styles.v}>{stock.country}</span>
             </span>
           </>
         ) : null}
@@ -127,9 +121,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       <div className={styles.priceRow}>
         <div className={styles.priceBlock}>
           <span className={styles.priceLabel}>Price:</span>
-          <span className={styles.priceValue}>
-            {day.price != null ? `$${day.price.toFixed(2)}` : "—"}
-          </span>
+          <span className={styles.priceValue}>{day.price != null ? `$${day.price.toFixed(2)}` : "—"}</span>
         </div>
         <span className={`${styles.delta} ${mainDeltaClass}`}>
           {day.dPct == null ? "" : `${day.dPct >= 0 ? "+" : ""}${day.dPct.toFixed(2)}%`}

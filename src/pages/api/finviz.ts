@@ -9,12 +9,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const minStr = typeof req.query.min === "string" ? req.query.min : undefined;
     const minDesired = Math.max(1, parseInt(minStr || String(PAGE_SIZE), 10) || PAGE_SIZE);
 
-    const { items, debug } = await fetchFinvizSet({ page, fOverride, minDesired });
+    const { items, debug, hasMore } = await fetchFinvizSet({ page, fOverride, minDesired });
 
     res.setHeader("X-Finviz-PageSize", String(PAGE_SIZE));
-    res.setHeader("X-Finviz-HasMore", String(items.length === PAGE_SIZE ? 1 : 0));
-    res.setHeader("X-Finviz-Debug", debug.map(d => `${d.stage}:${d.count}`).join(","));
+    res.setHeader("X-Finviz-HasMore", hasMore ? "1" : "0");
+    res.setHeader("X-Finviz-Debug", debug.map((d) => `${d.stage}:${d.count}`).join(","));
+    // кэш на CDN/верчеле (можно ослабить/усилить)
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=86400");
+
     res.status(200).json({
       page,
       pageSize: PAGE_SIZE,

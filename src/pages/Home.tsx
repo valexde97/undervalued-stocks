@@ -1,3 +1,4 @@
+// src/pages/Home.tsx
 import { useEffect, useMemo, useState } from "react";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
@@ -11,6 +12,7 @@ import { useMarketStatus } from "../hooks/useMarketStatus";
 import CryptoMarquee from "../components/CryptoMarquee";
 import NewsMini from "../components/NewsMini";
 import TopGainers from "../components/TopGainers";
+import MarketStatusBanner from "../components/MarketStatusBanner";
 
 import styles from "./home.module.css";
 
@@ -45,7 +47,7 @@ export const Home = () => {
           await dispatch(fetchQuotesForTickers({ tickers: newTickers, concurrency: 2 }));
         }
       } catch {
-        /* оставляем кнопку, можно повторить */
+        /* оставить кнопку активной для повторной попытки */
       }
     }
   };
@@ -55,13 +57,14 @@ export const Home = () => {
   return (
     <motion.div className={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className={styles.container}>
-        {/* Крипто-бегущая строка (в пределах контейнера) */}
+        {/* Crypto marquee */}
         <div className={styles.topBar}>
           <CryptoMarquee />
         </div>
 
-        {/* Hero / статус рынка */}
+        {/* Hero / market status */}
         <header className={styles.hero}>
+          <MarketStatusBanner />
           {marketClosed && (
             <div className={styles.marketBadge} aria-live="polite">
               US market: {market.reason}
@@ -69,7 +72,7 @@ export const Home = () => {
           )}
         </header>
 
-        {/* Двухколоночная шапка: новости (широко) + три карточки столбиком */}
+        {/* Header grid: news + gainers */}
         <section className={styles.headerGrid}>
           <div className={styles.newsCol}>
             <NewsMini />
@@ -79,7 +82,7 @@ export const Home = () => {
           </aside>
         </section>
 
-        {/* Список акций */}
+        {/* List */}
         {status === "loading" && items.length === 0 && (
           <div className={styles.skeletonWrap}>
             <Skeleton count={6} height={140} style={{ marginBottom: 12 }} />
@@ -88,8 +91,7 @@ export const Home = () => {
 
         {status === "failed" && (
           <div className={styles.error}>
-            Fetch failed.{" "}
-            <button onClick={() => dispatch(bootstrapFromFinviz({ pages: 1 }))}>Retry</button>
+            Fetch failed. <button onClick={() => dispatch(bootstrapFromFinviz({ pages: 1 }))}>Retry</button>
           </div>
         )}
 

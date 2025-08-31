@@ -1,9 +1,12 @@
 // src/components/StocksPager.tsx
 import React from "react";
 import { useDispatch, useSelector } from "react-redux";
-import { selectVisibleStocks, selectStocksState } from "../store/stocks.slice";
-import { fetchFinvizPageWithPrefetch } from "../store/stocks.thunks";
-import { nextSymbolsPage } from "../store/stocks.slice";
+import {
+  fetchFinvizPageWithPrefetch,
+  nextSymbolsPage,
+  selectStocksState,
+  selectVisibleStocks,
+} from "../store/stocksSlice";
 import StockList from "./StockList";
 
 export default function StocksPager() {
@@ -13,16 +16,19 @@ export default function StocksPager() {
 
   const onShowNext = async () => {
     const nextPage = symbolPage + 1;
-    // 1) догружаем/доделываем следующую двадцатку и тут же префетчим следующую
-    await dispatch(fetchFinvizPageWithPrefetch({ page: nextPage })).unwrap().catch(() => void 0);
-    // 2) раскрываем её на экране
-    dispatch(nextSymbolsPage());
+    try {
+      const { payload } = await dispatch(fetchFinvizPageWithPrefetch({ page: nextPage })).unwrap();
+      if (payload.length > 0) {
+        dispatch(nextSymbolsPage());
+      }
+    } catch {
+      /* no-op */
+    }
   };
 
   return (
     <div className="flex flex-col gap-4">
       <StockList stocks={visible} />
-
       <div className="flex items-center justify-center py-2">
         {hasMore ? (
           <button
