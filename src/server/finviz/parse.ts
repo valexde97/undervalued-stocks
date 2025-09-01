@@ -1,7 +1,7 @@
 // src/server/finviz/parse.ts
 import * as cheerio from "cheerio";
 
-const TICKER_OK = /^[A-Z][A-Z0-9.\-]*$/;
+const TICKER_OK = /^[A-Z][A-Z0-9.-]*$/;
 
 function toNum(s?: string | null): number | null {
   if (!s) return null;
@@ -15,16 +15,14 @@ function normalizeHeader(h: string): string {
   return h.toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-function pickMainTable($: cheerio.CheerioAPI) {
-  // предпочтительно основная таблица Finviz
-  let $t = $("table.table-light").first();
-  if ($t.length) return $t;
+function pickMainTable($: cheerio.CheerioAPI): cheerio.Cheerio<any> | null {
+  const $t = $("table.table-light").first();
+  if ($t.length) return $t as cheerio.Cheerio<any>;
 
-  // запасной вариант — таблица с заголовком 'Ticker' или ссылками на quote.ashx
   const candidates = $("table")
     .toArray()
     .map((el) => {
-      const $el = $(el);
+      const $el = $(el) as cheerio.Cheerio<any>;
       const theadText = $el.find("thead").text().toLowerCase();
       const hasTicker = /ticker/.test(theadText) || $el.find('a[href*="quote.ashx"]').length > 0;
       const rows = $el.find("tbody tr").length || $el.find("tr").length - 1;
@@ -61,12 +59,8 @@ function indexHeaders(headers: string[]) {
   };
 }
 
-function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
-  const headers = table
-    .find("thead tr th")
-    .map((_, th) => normalizeHeader($(th).text()))
-    .get();
-
+function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio<any>) {
+  const headers = table.find("thead tr th").map((_, th) => normalizeHeader($(th).text())).get();
   const idx = indexHeaders(headers);
 
   const bodyRows = table.find("tbody tr");
@@ -75,7 +69,7 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
   const out: any[] = [];
 
   rows.each((_, tr) => {
-    const $tr = $(tr);
+    const $tr = $(tr as any);
     const tds = $tr.find("td");
     if (!tds.length) return;
 
@@ -87,7 +81,7 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
     if (!TICKER_OK.test(ticker) && idx.idxTicker >= 0 && idx.idxTicker < tds.length) {
       ticker = $(tds[idx.idxTicker]).text().trim();
     }
-    if (!TICKER_OK.test(ticker)) return; // пропускаем мусор
+    if (!TICKER_OK.test(ticker)) return;
 
     const get = (i?: number) => (i != null && i >= 0 && i < tds.length ? $(tds[i]).text().trim() : "");
 
@@ -95,13 +89,10 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
 
     const company = get(idx.idxCompany);
     if (company) obj.company = company;
-
     const sector = get(idx.idxSector);
     if (sector) obj.sector = sector;
-
     const industry = get(idx.idxIndustry);
     if (industry) obj.industry = industry;
-
     const country = get(idx.idxCountry);
     if (country) obj.country = country;
 
@@ -110,19 +101,15 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
 
     const pe = toNum(get(idx.idxPE));
     if (pe != null) obj.peSnapshot = pe;
-
     const ps = toNum(get(idx.idxPS));
     if (ps != null) obj.psSnapshot = ps;
-
     const pb = toNum(get(idx.idxPB));
     if (pb != null) obj.pbSnapshot = pb;
 
     const price = toNum(get(idx.idxPrice));
     if (price != null) obj.price = price;
 
-    const chg = get(idx.idxChange);
-    // Finviz хранит change как '1.23%' — toNum уже снимает %
-    const chgNum = toNum(chg);
+    const chgNum = toNum(get(idx.idxChange)); // снимаем знак %/символы
     if (chgNum != null) obj.changePct = chgNum;
 
     const vol = get(idx.idxVolume);
@@ -131,7 +118,7 @@ function parsePickedTable($: cheerio.CheerioAPI, table: cheerio.Cheerio) {
     out.push(obj);
   });
 
-  // merge по тикеру (на всякий случай)
+  // merge по тикеру
   const map = new Map<string, any>();
   for (const r of out) map.set(r.ticker, { ...(map.get(r.ticker) || {}), ...r });
   return Array.from(map.values());

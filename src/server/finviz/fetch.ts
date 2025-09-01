@@ -7,31 +7,50 @@ const UA =
 
 export const PAGE_SIZE = 20 as const;
 
-// Базовые фильтры — можно переопределить через ?f=...
-const DEFAULT_FILTERS = "sh_price_u20,fa_pe_u15,fa_ps_u1,exch_nasd,exch_nyse,exch_amex";
+// Базовые фильтры — мягкий и строгий
+const FILTER_STRICT = "sh_price_u20,fa_pe_u15,fa_ps_u1,exch_nasd,exch_nyse,exch_amex";
+const FILTER_RELAX  = "sh_price_u20,fa_ps_u1,exch_nasd,exch_nyse,exch_amex";
+
+const BASE_DELAY_MS = 450;
+let lastHitAt = 0;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const jitter = (a = 60, b = 180) => Math.floor(a + Math.random() * (b - a));
+async function throttleOnce() {
+  const now = Date.now();
+  const wait = Math.max(0, BASE_DELAY_MS - (now - lastHitAt));
+  if (wait > 0) await sleep(wait);
+  lastHitAt = Date.now();
+}
 
 function buildUrl(page: number, f: string, v: "121" | "111") {
   const start = 1 + page * PAGE_SIZE; // 1,21,41...
   return `${BASE}?v=${v}&f=${encodeURIComponent(f)}&r=${start}&ft=2`;
 }
 
-async function fetchView(f: string, page: number, view: "121" | "111") {
-  const res = await fetch(buildUrl(page, f, view), {
+async function fetchHtml(url: string): Promise<string> {
+  await throttleOnce();
+  const res = await fetch(url, {
     method: "GET",
     headers: {
       "User-Agent": UA,
-      Accept: "text/html,*/*",
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
       "Accept-Language": "en-US,en;q=0.9",
       Referer: "https://finviz.com/screener.ashx",
+      "Cache-Control": "no-cache",
+      Pragma: "no-cache",
     } as any,
-    // чтобы не кэшировать на edge-уровне
+    redirect: "follow" as any,
     cache: "no-store" as any,
   });
   if (!res.ok) {
     const txt = await res.text().catch(() => "");
-    throw new Error(`Finviz ${view} fetch failed: ${res.status} ${res.statusText}\n${txt.slice(0, 200)}`);
+    throw new Error(`Finviz fetch failed: ${res.status} ${res.statusText} :: ${txt.slice(0, 300)}`);
   }
-  const html = await res.text();
+  return res.text();
+}
+
+async function fetchView(f: string, page: number, view: "121" | "111") {
+  const html = await fetchHtml(buildUrl(page, f, view));
   return parseTable(html);
 }
 
@@ -42,44 +61,123 @@ function mergeByTicker(a: any[], b: any[]) {
   return Array.from(map.values());
 }
 
-// «ступени расслабления» фильтров — для доливки первой страницы до 20
-const FILTER_STAGES = [
-  { name: "strict", f: DEFAULT_FILTERS },
-  { name: "no_pe", f: "sh_price_u20,fa_ps_u1,exch_nasd,exch_nyse,exch_amex" },
-];
-
+/**
+ * ВАЖНО: консистентность страниц
+ * - page=0: пытаемся на STRICT; если <20 — выбираем RELAX как эффективный фильтр и ПЕРЕЗАПРАШИВАЕМ page=0 уже на RELAX.
+ * - page>0: всегда используем fOverride, если передан, ИНАЧЕ — STRICT (но клиент с этого момента шлёт f=effectiveF).
+ */
 export async function fetchFinvizSet(opts: {
   page: number;
   fOverride?: string;
-  minDesired?: number; // желаемый минимум на страницу; best effort
-}): Promise<{ items: any[]; debug: { stage: string; count: number }[]; hasMore: boolean }> {
+  minDesired?: number;
+}): Promise<{
+  items: any[];
+  debug: { stage: string; count: number }[];
+  hasMore: boolean;
+  effectiveF: string;
+}> {
   const page = Math.max(0, opts.page | 0);
-  const f = opts.fOverride || DEFAULT_FILTERS;
   const minDesired = Math.max(1, opts.minDesired ?? PAGE_SIZE);
 
-  // грузим 121 (valuation) + 111 (overview) параллельно
-  const [v121, v111] = await Promise.all([fetchView(f, page, "121"), fetchView(f, page, "111")]);
-  let merged = mergeByTicker(v121, v111);
+  // Если клиент явно указал f — используем его без «доливок»
+  if (opts.fOverride) {
+    const debug: { stage: string; count: number }[] = [];
+    const v121 = await fetchView(opts.fOverride, page, "121").catch(() => {
+      debug.push({ stage: "base_121_err", count: 0 });
+      return [] as any[];
+    });
+    if (v121.length) debug.push({ stage: "base_121", count: v121.length });
+    await sleep(100 + jitter());
+    const v111 = await fetchView(opts.fOverride, page, "111").catch(() => {
+      debug.push({ stage: "base_111_err", count: 0 });
+      return [] as any[];
+    });
+    if (v111.length) debug.push({ stage: "base_111", count: v111.length });
 
-  const debug: { stage: string; count: number }[] = [{ stage: "base", count: merged.length }];
-
-  // hasMore: если page >=1 и ровно PAGE_SIZE — значит очень вероятно есть следующая
-  let hasMore = merged.length === PAGE_SIZE;
-
-  // только для первой страницы пытаемся «долить» до minDesired, расслабляя фильтры
-  if (page === 0 && merged.length < minDesired && !opts.fOverride) {
-    for (const st of FILTER_STAGES.slice(1)) {
-      const [s121, s111] = await Promise.all([fetchView(st.f, page, "121"), fetchView(st.f, page, "111")]);
-      const stageMerged = mergeByTicker(s121, s111);
-      debug.push({ stage: st.name, count: stageMerged.length });
-      // наполняем, но не дублируем тикеры
-      const byTicker = new Map<string, any>(merged.map((x) => [x.ticker, x]));
-      for (const r of stageMerged) if (!byTicker.has(r.ticker)) byTicker.set(r.ticker, r);
-      merged = Array.from(byTicker.values());
-      if (merged.length >= minDesired) break;
-    }
-    hasMore = merged.length >= PAGE_SIZE; // по первой странице — эвристика
+    const merged = mergeByTicker(v121, v111);
+    const hasMore = merged.length >= PAGE_SIZE;
+    return {
+      items: merged.slice(0, PAGE_SIZE),
+      debug,
+      hasMore,
+      effectiveF: opts.fOverride,
+    };
   }
 
-  return { items: merged.slice(0, PAGE_SIZE), debug, hasMore };
+  // Иначе — это «первая страница с автоподбором фильтра»
+  if (page === 0) {
+    const debug: { stage: string; count: number }[] = [];
+
+    // 1) Пробуем STRICT
+    const s121 = await fetchView(FILTER_STRICT, 0, "121").catch(() => {
+      debug.push({ stage: "strict_121_err", count: 0 });
+      return [] as any[];
+    });
+    if (s121.length) debug.push({ stage: "strict_121", count: s121.length });
+    await sleep(100 + jitter());
+    const s111 = await fetchView(FILTER_STRICT, 0, "111").catch(() => {
+      debug.push({ stage: "strict_111_err", count: 0 });
+      return [] as any[];
+    });
+    if (s111.length) debug.push({ stage: "strict_111", count: s111.length });
+
+    const strictMerged = mergeByTicker(s121, s111);
+    const strictHasPage = strictMerged.length >= PAGE_SIZE;
+
+    if (strictHasPage) {
+      // strict хватает — это и есть effectiveF
+      return {
+        items: strictMerged.slice(0, PAGE_SIZE),
+        debug,
+        hasMore: true,
+        effectiveF: FILTER_STRICT,
+      };
+    }
+
+    // 2) Иначе — выбираем RELAX как эффективный фильтр и ПОЛНОСТЬЮ тянем page=0 по RELAX
+    const r121 = await fetchView(FILTER_RELAX, 0, "121").catch(() => {
+      debug.push({ stage: "relax_121_err", count: 0 });
+      return [] as any[];
+    });
+    if (r121.length) debug.push({ stage: "relax_121", count: r121.length });
+    await sleep(100 + jitter());
+    const r111 = await fetchView(FILTER_RELAX, 0, "111").catch(() => {
+      debug.push({ stage: "relax_111_err", count: 0 });
+      return [] as any[];
+    });
+    if (r111.length) debug.push({ stage: "relax_111", count: r111.length });
+
+    const relaxMerged = mergeByTicker(r121, r111);
+    const hasMore = relaxMerged.length >= PAGE_SIZE;
+
+    return {
+      items: relaxMerged.slice(0, PAGE_SIZE),
+      debug,
+      hasMore,
+      effectiveF: FILTER_RELAX,
+    };
+  }
+
+  // page > 0 без fOverride — клиент ещё не подхватил effectiveF (маловероятно),
+  // идём на STRICT (чтобы не гадать); после первой страницы клиент начнёт присылать f=...
+  const debug: { stage: string; count: number }[] = [];
+  const v121 = await fetchView(FILTER_STRICT, page, "121").catch(() => {
+    debug.push({ stage: "base_121_err", count: 0 });
+    return [] as any[];
+  });
+  if (v121.length) debug.push({ stage: "base_121", count: v121.length });
+  await sleep(100 + jitter());
+  const v111 = await fetchView(FILTER_STRICT, page, "111").catch(() => {
+    debug.push({ stage: "base_111_err", count: 0 });
+    return [] as any[];
+  });
+  if (v111.length) debug.push({ stage: "base_111", count: v111.length });
+  const merged = mergeByTicker(v121, v111);
+
+  return {
+    items: merged.slice(0, PAGE_SIZE),
+    debug,
+    hasMore: merged.length >= PAGE_SIZE,
+    effectiveF: FILTER_STRICT,
+  };
 }

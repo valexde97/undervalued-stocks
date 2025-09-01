@@ -17,8 +17,8 @@ export default function StocksPager() {
   const onShowNext = async () => {
     const nextPage = symbolPage + 1;
     try {
-      const { payload } = await dispatch(fetchFinvizPageWithPrefetch({ page: nextPage })).unwrap();
-      if (payload.length > 0) {
+      const { stocks } = await dispatch(fetchFinvizPageWithPrefetch({ page: nextPage })).unwrap();
+      if (stocks.length > 0) {
         dispatch(nextSymbolsPage());
       }
     } catch {
