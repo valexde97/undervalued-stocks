@@ -4,7 +4,7 @@
 
 /* Ограничиваем ширину приложения и центрируем */
 .container {
-  max-width: 1180px;      /* можешь поставить 1200/1240 по вкусу */
+  max-width: 1180px;
   margin: 0 auto;
 }
 
@@ -39,24 +39,45 @@
   font-size: 14px;
 }
 
-/* Новости + правая колонка */
+/* ===== Новости + правая колонка (антинаезд) ===== */
 .headerGrid {
   display: grid;
-  gap: 18px;
-  grid-template-columns: 1fr;
+  gap: 24px;                 /* явный зазор между колонками */
+  grid-template-columns: 1fr;/* мобилка: одна колонка */
   align-items: start;
   margin-bottom: 16px;
 }
 
-.newsCol, .sideCol { min-width: 0; }
+.newsCol,
+.sideCol { min-width: 0; }
 
-/* На десктопе — две колонки,
-   правая фиксированной «удобной» ширины */
+/* Каждому дочернему элементу — ширина 100% и без внешних отступов,
+   чтобы карточки не «выпирали» за колонку */
+.newsCol > *,
+.sideCol > * {
+  width: 100%;
+  margin: 0;
+  box-sizing: border-box;
+}
+
+/* Десктоп: фиксируем ширину правой панели,
+   левая — свободно тянется без переползания */
 @media (min-width: 980px) {
   .headerGrid {
-    grid-template-columns: minmax(0, 1fr) 360px;
+    grid-template-columns: minmax(0, 1fr) 380px; /* можно 360–400 по вкусу */
+    column-gap: 24px;
   }
-  .sideCol { position: sticky; top: 12px; }
+
+  /* Правую колонку «приклеиваем», но ниже всех z-слоёв,
+     чтобы тени не перекрывали левую карточку и не было «наезда» */
+  .sideCol {
+    position: sticky;
+    top: 12px;
+    z-index: 0;
+  }
+
+  /* Левой колонке — отдельный слой, чтобы её рамка и тени не попадали под правую */
+  .newsCol { position: relative; z-index: 1; }
 }
 
 .listArea { margin-top: 6px; }

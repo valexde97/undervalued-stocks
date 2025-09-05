@@ -30,7 +30,8 @@
   padding: 8px 12px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(255,255,255,.04);
+  background: var(--card-bg);
+  box-shadow: var(--shadow);
   min-width: 130px;
   display: flex;
   justify-content: space-between;

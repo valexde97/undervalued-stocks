@@ -1,3 +1,4 @@
+// src/components/CryptoMarquee.tsx
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Quote = { c?: number; pc?: number; t?: number };
@@ -22,7 +23,6 @@ function short(sym: string) {
 async function fetchBatch(symbols: string[]): Promise<Batch> {
   const u = new URL("/api/fh/quotes-batch", window.location.origin);
   u.searchParams.set("symbols", symbols.join(","));
-  // один запрос раз в интервал — не трогаем кэш браузера
   const r = await fetch(u.toString(), { cache: "no-store" });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.json();
@@ -44,12 +44,12 @@ export default function CryptoMarquee() {
         setPausedUntil(null);
       }
     } catch {
-      // на ошибке — попробуем позже
+      /* try later */
     }
   };
 
   useEffect(() => {
-    void poll(); // первый запрос сразу
+    void poll(); // first request immediately
     const id = window.setInterval(poll, 20_000);
     tickRef.current = id;
     return () => {
@@ -68,42 +68,47 @@ export default function CryptoMarquee() {
   }, [data]);
 
   return (
-    <div style={{
-      display: "flex",
-      gap: 8,
-      overflowX: "auto",
-      padding: "4px 2px",
-      alignItems: "center"
-    }}>
+    <div
+      style={{
+        display: "flex",
+        gap: 8,
+        overflowX: "auto",
+        padding: "4px 2px",
+        alignItems: "center",
+      }}
+    >
       {rows.map((r) => (
         <div
           key={r.sym}
           style={{
             display: "flex",
             gap: 8,
-            padding: "4px 8px",
+            padding: "8px 12px",
             border: "1px solid var(--border)",
-            borderRadius: 999,
+            borderRadius: 10,
             whiteSpace: "nowrap",
-            background: "rgba(255,255,255,.04)",
-            opacity: r.cached ? 0.8 : 1,
+            background: "var(--card-bg)",   // <— твёрдый фон вместо прозрачного
+            boxShadow: "var(--shadow)",     // <— как у остальных карточек
+            opacity: r.cached ? 0.9 : 1,    // лёгкий намёк на кеш, но без «призрака» в лайте
+            flex: "0 0 auto",
+            minWidth: 130,
           }}
-          title={
-            r.pct != null ? `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%` : ""
-          }
+          title={r.pct != null ? `${r.pct >= 0 ? "+" : ""}${r.pct.toFixed(2)}%` : ""}
         >
-          <strong style={{ opacity: .85 }}>{r.label}</strong>
-          <span style={{ opacity: .85 }}>{r.c != null ? r.c.toFixed(2) : "—"}</span>
-          <span style={{
-            fontWeight: 600,
-            color: r.pct != null ? (r.pct >= 0 ? "#22c55e" : "#ef4444") : "inherit"
-          }}>
+          <strong style={{ opacity: 0.9 }}>{r.label}</strong>
+          <span style={{ opacity: 0.9 }}>{r.c != null ? r.c.toFixed(2) : "—"}</span>
+          <span
+            style={{
+              fontWeight: 700,
+              color: r.pct != null ? (r.pct >= 0 ? "#22c55e" : "#ef4444") : "inherit",
+            }}
+          >
             {r.pct != null ? (r.pct >= 0 ? "+" : "") + r.pct.toFixed(2) + "%" : ""}
           </span>
         </div>
       ))}
       {pausedUntil && Date.now() < pausedUntil && (
-        <span style={{ marginLeft: 8, fontSize: 12, opacity: .75 }}>
+        <span style={{ marginLeft: 8, fontSize: 12, opacity: 0.75 }}>
           rate-limited… retry {Math.ceil((pausedUntil - Date.now()) / 1000)}s
         </span>
       )}
