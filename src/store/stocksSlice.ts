@@ -2,12 +2,12 @@
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { Stock } from "../types/stock";
 import { loadFinviz, resetFinvizEffectiveFilter } from "../api/loadBatch";
-import { fetchJSON, mapLimit } from "../utils/http";
+import { fetchJSON } from "../utils/http";
 
-// --------------------- Finnhub quote shape ---------------------
+// ---------- Finnhub quote shape ----------
 type Quote = { c?: number; o?: number; h?: number; l?: number; pc?: number; dp?: number; d?: number };
 
-// --------------------- State ---------------------
+// ---------- State ----------
 export type StocksState = {
   items: Stock[];
   nextCache: Stock[] | null;
@@ -25,7 +25,7 @@ const initialState: StocksState = {
   hasMore: true,
 };
 
-// --------------------- helpers ---------------------
+// ---------- helpers ----------
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
 
 function saneText(v?: string | null, ticker?: string | null) {
@@ -43,9 +43,10 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
     const s: Stock = {
       ticker,
       name: saneText(row.company, ticker) ?? ticker,
-      category: "small",
-      price: row.price ?? null,
-      changePct: row.changePct ?? null,
+      category: "small", // будет уточняться позже по метрикам, пока фикс
+      // Finviz больше не даёт снапшоты цены — загрузим из Finnhub
+      price: null,
+      changePct: null,
 
       pe: null,
       ps: null,
@@ -55,19 +56,19 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       grossMargin: null,
       netMargin: null,
 
-      marketCap: row.marketCap ?? null,
-      marketCapText: saneText(row.marketCapText, ticker),
+      marketCap: null,
+      marketCapText: null,
 
-      peSnapshot: row.peSnapshot ?? null,
-      psSnapshot: row.psSnapshot ?? null,
-      pbSnapshot: row.pbSnapshot ?? null,
+      peSnapshot: null,
+      psSnapshot: null,
+      pbSnapshot: null,
 
       sector: saneText(row.sector, ticker),
       industry: saneText(row.industry, ticker),
       country: saneText(row.country, ticker),
 
-      beta: row.beta ?? null,
-      dividendYield: row.dividendYield ?? null,
+      beta: null,
+      dividendYield: null,
 
       potentialScore: null,
       reasons: [],
@@ -76,92 +77,42 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
   });
 }
 
-// --------------------- quotes throttling ---------------------
-let globalBackoffUntil = 0;
-const lastFetchBySymbol = new Map<string, number>();
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-const PER_SYMBOL_COOLDOWN_MS = Math.max(
-  10_000,
-  Number(((import.meta as any).env?.VITE_QUOTE_COOLDOWN_MS as any) || 60_000)
-);
-const GLOBAL_BACKOFF_MS = Math.max(
-  15_000,
-  Number(((import.meta as any).env?.VITE_QUOTE_BACKOFF_MS as any) || 60_000)
-);
-const RPS_DELAY_MS = Math.max(300, Number(((import.meta as any).env?.VITE_QUOTE_RPS_DELAY_MS as any) || 900));
-
-let lastQuoteAt = 0;
-let quotesChain: Promise<void> = Promise.resolve();
-
-async function waitForRpsSlot() {
-  const now = Date.now();
-  const wait = Math.max(0, RPS_DELAY_MS - (now - lastQuoteAt));
-  if (wait > 0) await sleep(wait);
-  lastQuoteAt = Date.now();
-}
-
-// --------------------- API/thunks ---------------------
-export const fetchQuotesForTickers = createAsyncThunk<
+// ---------- Batch quotes (NEW) ----------
+export const fetchQuotesBatch = createAsyncThunk<
   void,
-  { tickers: string[]; concurrency?: number }
->("stocks/fetchQuotesForTickers", async ({ tickers, concurrency = 2 }, { dispatch }) => {
-  const conc = Math.max(1, Math.min(Math.floor(concurrency), 3));
+  { tickers: string[] }
+>("stocks/fetchQuotesBatch", async ({ tickers }, { dispatch }) => {
+  const unique = Array.from(new Set(tickers)).filter(Boolean);
+  if (unique.length === 0) return;
 
-  quotesChain = quotesChain.then(async () => {
-    if (Date.now() < globalBackoffUntil) return;
+  const qs = encodeURIComponent(unique.join(","));
+  const data = await fetchJSON<{ quotes: Record<string, Quote | null> }>(`/api/fh/quotes-batch?symbols=${qs}`);
+  const quotes = data?.quotes ?? {};
 
-    const now = Date.now();
-    const unique = Array.from(new Set(tickers));
-    const toQuery = unique.filter((sym) => {
-      const last = lastFetchBySymbol.get(sym) ?? 0;
-      return now - last >= PER_SYMBOL_COOLDOWN_MS;
-    });
-    if (toQuery.length === 0) return;
+  for (const [symbol, q] of Object.entries(quotes)) {
+    if (!symbol) continue;
+    const computedDp =
+      q?.dp != null && Number.isFinite(q.dp)
+        ? q.dp
+        : q?.c != null && q?.pc != null && q.pc !== 0
+          ? ((q.c - q.pc) / q.pc) * 100
+          : null;
 
-    await mapLimit(
-      toQuery,
-      conc,
-      async (symbol) => {
-        if (Date.now() < globalBackoffUntil) return;
-        await waitForRpsSlot();
-        try {
-          const url = `/api/fh/quote?symbol=${encodeURIComponent(symbol)}`;
-          const q = await fetchJSON<Quote>(url);
-          lastFetchBySymbol.set(symbol, Date.now());
-
-          // Intraday % change
-          const computedDp =
-            q.dp != null && Number.isFinite(q.dp)
-              ? q.dp
-              : (q.c != null && q.pc != null && q.pc !== 0)
-                ? ((q.c - q.pc) / q.pc) * 100
-                : null;
-
-          dispatch(
-            mergeStockPatch({
-              ticker: symbol,
-              price: q.c ?? null,
-              ...(q.o != null ? { open: q.o } : {}),
-              ...(q.h != null ? { high: q.h } : {}),
-              ...(q.l != null ? { low: q.l } : {}),
-              ...(q.pc != null ? { prevClose: q.pc } : {}),
-              ...(computedDp != null ? { changePct: computedDp } : {}),
-            })
-          );
-        } catch (e: any) {
-          const msg = String(e?.message || e);
-          if ((e?.status === 429) || msg.includes("429")) {
-            globalBackoffUntil = Date.now() + GLOBAL_BACKOFF_MS;
-          }
-        }
-      }
+    dispatch(
+      mergeStockPatch({
+        ticker: symbol,
+        price: q?.c ?? null,
+        ...(q?.o != null ? { open: q.o } : {}),
+        ...(q?.h != null ? { high: q.h } : {}),
+        ...(q?.l != null ? { low: q.l } : {}),
+        ...(q?.pc != null ? { prevClose: q.pc } : {}),
+        ...(computedDp != null ? { changePct: computedDp } : {}),
+      })
     );
-  });
-
-  await quotesChain;
+  }
 });
 
+// ---------- Finviz page fetch ----------
 export const fetchFinvizPage = createAsyncThunk<
   { page: number; stocks: Stock[]; hasMoreMeta: boolean },
   { page: number }
@@ -173,29 +124,32 @@ export const fetchFinvizPage = createAsyncThunk<
 
 /**
  * Первая загрузка: берём страницу 0, показываем её, префетчим 1-ю,
- * подтягиваем котировки для 20 текущих тикеров.
+ * и тянем котировки для первых 20 тикеров одним batch-запросом.
  */
 export const bootstrapFromFinviz = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
-  { quotesConcurrency?: number } | void
->("stocks/bootstrapFromFinviz", async (arg = {}, { dispatch }) => {
-  const quotesConc =
-    (arg as any)?.quotesConcurrency ?? Math.max(1, Number((import.meta as any).env?.VITE_FINNHUB_QUOTE_RPS || 2));
-
+  void
+>("stocks/bootstrapFromFinviz", async (_arg, { dispatch }) => {
   resetFinvizEffectiveFilter();
 
   const { page: p0, stocks: s0, hasMoreMeta: more0 } = await dispatch(fetchFinvizPage({ page: 0 })).unwrap();
 
   const tickers0 = s0.map((s) => s.ticker);
-  if (tickers0.length) {
-    void dispatch(fetchQuotesForTickers({ tickers: tickers0, concurrency: quotesConc }));
-  }
+ if (tickers0.length) {
+  void dispatch(fetchQuotesBatch({ tickers: tickers0 }));
+  void dispatch(fetchMetricsBatch({ tickers: tickers0 })); // NEW
+}
+
 
   let nextCache: Stock[] | null = null;
   if (more0) {
     try {
       const { stocks: s1 } = await dispatch(fetchFinvizPage({ page: 1 })).unwrap();
       nextCache = s1;
+      // префетч котировок следующей двадцатки — в фоне
+      const tickers1 = s1.map((s) => s.ticker);
+      if (tickers1.length) void dispatch(fetchQuotesBatch({ tickers: tickers1 }));
+    if (tickers1.length) void dispatch(fetchMetricsBatch({ tickers: tickers1 })); // NEW
     } catch {
       nextCache = null;
     }
@@ -205,7 +159,8 @@ export const bootstrapFromFinviz = createAsyncThunk<
 });
 
 /**
- * По клику «LOAD NEXT 20»
+ * По клику «LOAD NEXT 20»: заменяем текущую 20-ку на следующую и
+ * префетчим ещё одну страницу вперёд.
  */
 export const loadNextAndReplace = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
@@ -228,12 +183,22 @@ export const loadNextAndReplace = createAsyncThunk<
     return { items: state.stocks.items, nextCache: null, page: curr, hasMore: false };
   }
 
+  // Загружаем котировки для новой двадцатки
+  const tickers = nextItems.map((s) => s.ticker);
+  if (tickers.length) void dispatch(fetchQuotesBatch({ tickers }));
+if (tickers.length) void dispatch(fetchMetricsBatch({ tickers })); // NEW
+
+  // Префетчим следующую страницу (и её котировки — в фоне)
   let nextCache: Stock[] | null = null;
   let hasMore = true;
   try {
     const { stocks: sNext, hasMoreMeta } = await dispatch(fetchFinvizPage({ page: effectivePage + 1 })).unwrap();
     nextCache = sNext;
     hasMore = hasMoreMeta || (sNext.length > 0);
+    const tickersNext = sNext.map((s) => s.ticker);
+   
+    if (tickersNext.length) void dispatch(fetchQuotesBatch({ tickers: tickersNext }));
+   if (tickersNext.length) void dispatch(fetchMetricsBatch({ tickers: tickersNext }));
   } catch {
     hasMore = false;
     nextCache = null;
@@ -242,7 +207,7 @@ export const loadNextAndReplace = createAsyncThunk<
   return { items: nextItems, nextCache, page: effectivePage, hasMore };
 });
 
-// --------------------- slice ---------------------
+// ---------- slice ----------
 const stocksSlice = createSlice({
   name: "stocks",
   initialState,
@@ -293,6 +258,44 @@ const stocksSlice = createSlice({
         if (i !== -1) state.items[i] = { ...(state.items[i] as any), ...action.payload } as Stock;
       });
   },
+});
+
+type Metrics = { marketCap?: number | null; pe?: number | null; ps?: number | null; pb?: number | null };
+
+export const fetchMetricsBatch = createAsyncThunk<
+  void,
+  { tickers: string[] }
+>("stocks/fetchMetricsBatch", async ({ tickers }, { dispatch }) => {
+  const unique = Array.from(new Set(tickers)).filter(Boolean);
+  if (unique.length === 0) return;
+
+  const qs = encodeURIComponent(unique.join(","));
+  const data = await fetchJSON<{ metrics: Record<string, Metrics> }>(`/api/fh/metrics-batch?symbols=${qs}`);
+  const map = data?.metrics ?? {};
+
+  for (const [symbol, m] of Object.entries(map)) {
+const rawCap = m?.marketCap ?? null;
+const marketCap = typeof rawCap === "number" ? rawCap * 1000 : null; // B -> M
+
+    // категория по капе (примерная шкала)
+    let category: Stock["category"] | undefined = undefined;
+    if (typeof marketCap === "number") {
+      if (marketCap >= 10000) category = "large";
+      else if (marketCap >= 2000) category = "mid";
+      else category = "small";
+    }
+
+    dispatch(
+      mergeStockPatch({
+        ticker: symbol,
+        marketCap: marketCap, // Finnhub в миллиардах USD → если у тебя ожидание в M, умножь на 1000
+        pe: m?.pe ?? null,
+        ps: m?.ps ?? null,
+        pb: m?.pb ?? null,
+        ...(category ? { category } : {}),
+      })
+    );
+  }
 });
 
 export const { resetPager } = stocksSlice.actions;
