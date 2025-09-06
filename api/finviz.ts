@@ -1,4 +1,3 @@
-// /api/finviz.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as cheerio from "cheerio";
 
@@ -6,7 +5,8 @@ export const runtime = "nodejs";
 
 const PAGE_SIZE = 20;
 const BASE = "https://finviz.com/screener.ashx";
-const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
+const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
 
 const HEADERS = {
   "User-Agent": UA,
@@ -15,140 +15,123 @@ const HEADERS = {
   Referer: "https://finviz.com/screener.ashx",
 };
 
-const DEFAULT_F = "sh_price_u20,fa_pe_u15,fa_ps_u1,exch_nasd,exch_nyse,exch_amex";
+const TICKER_OK = /^[A-Z][A-Z0-9.-]{0,10}$/;
+const DEFAULT_F = "sh_price_u20,fa_pe_u15,fa_ps_u1"; // биржу не задаём -> все биржи
+
+function normalizeFilters(raw: string) {
+  const parts = raw.split(",").map(s => s.trim()).filter(Boolean);
+  const exchCount = parts.filter(p => p.startsWith("exch_")).length;
+  // если пытались указать несколько бирж — считаем это "все биржи"
+  const cleaned = exchCount > 1 ? parts.filter(p => !p.startsWith("exch_")) : parts;
+  // поддержка псевдо-алиаса exch_all -> "все биржи"
+  return cleaned.filter(p => p !== "exch_all").join(",");
+}
 
 function buildUrl(page: number, f?: string) {
-  const view = "111"; // Overview
-  const filters = f ?? DEFAULT_F;
-  const start = 1 + page * PAGE_SIZE; // 1,21,41,...
+  const view = "111";
+  const filters = normalizeFilters(f ?? DEFAULT_F);
+  const start = 1 + page * PAGE_SIZE;
   return `${BASE}?v=${encodeURIComponent(view)}&f=${encodeURIComponent(filters)}&r=${start}`;
 }
 
-const TICKER_OK = /^[A-Z][A-Z0-9.-]{0,10}$/;
-const stopWords = new Set([
-  "order by","valuation","financial","ownership","performance","technical","overview","export",
-  "any","ascdesc","signal","index","dividend yield","average volume","target price","ipo date",
-]);
-
-const looksLikeNoise = (s?: string | null) => {
-  if (!s) return false;
-  const x = s.trim().toLowerCase();
-  if (!x) return false;
-  for (const w of stopWords) if (x.includes(w)) return true;
-  return false;
-};
-
-function parseTickerFromHref(href?: string | null): string | null {
-  if (!href) return null;
-  try {
-    const u = new URL(href, "https://finviz.com/");
-    const t = (u.searchParams.get("t") || "").toUpperCase().trim();
-    return TICKER_OK.test(t) ? t : null;
-  } catch { /* noop */ }
-  const m = href.match(/[?&]t=([A-Z0-9.-]{1,10})/i);
-  const t = m?.[1]?.toUpperCase() ?? null;
-  return t && TICKER_OK.test(t) ? t : null;
+function sanitizeCompany(s?: string | null) {
+  if (!s) return null;
+  const t = s.trim();
+  if (!t || t === "-" || /^filters:/i.test(t) || /\bexport\b/i.test(t)) return null;
+  return t;
 }
 
-function normalizeHeader(h: string): string {
-  return h.toLowerCase().replace(/\s+/g, " ").trim();
+function parseTotalText(txt: string): number | null {
+  const m1 = txt.match(/Total:\s*([\d,]+)/i);
+  if (m1?.[1]) return parseInt(m1[1].replace(/,/g, ""), 10);
+  const m2 = txt.match(/#\s*\d+\s*\/\s*([\d,]+)\s*Total/i);
+  if (m2?.[1]) return parseInt(m2[1].replace(/,/g, ""), 10);
+  return null;
 }
 
-function pickMainTable($: cheerio.CheerioAPI) {
-  const $t = $("table.table-light").first();
-  if ($t.length) return $t;
-  const candidates = $("table").toArray().map((el) => {
-    const $el = $(el);
-    const hasQuote = $el.find('a[href*="quote.ashx"]').length > 0;
-    const rows = $el.find("tbody tr").length || Math.max(0, $el.find("tr").length - 1);
-    return { $el, score: (hasQuote ? 10 : 0) + rows };
-  }).sort((a, b) => b.score - a.score);
-  return candidates.length ? candidates[0].$el : null;
+/** Выбираем таблицу с МАКСИМАЛЬНЫМ числом строк, где есть ссылка на quote.ashx?t=  */
+function pickScreenerTable($: cheerio.CheerioAPI) {
+  let best: { $t: cheerio.Cheerio<any>; rows: number } | null = null;
+  $("table").each((_i, el) => {
+    const $t = $(el);
+    const $rows = ($t.find("tbody tr").length ? $t.find("tbody tr") : $t.find("tr").slice(1))
+      .filter((_, tr) => $(tr).find('a[href*="quote.ashx?t="]').length > 0);
+    const cnt = $rows.length;
+    if (!best || cnt > best.rows) best = { $t, rows: cnt };
+  });
+  return best?.$t ?? null;
 }
 
-function indexHeaders(headers: string[]) {
-  const find = (...needles: string[]) => {
-    const n = needles.map((s) => s.toLowerCase());
-    for (let i = 0; i < headers.length; i++) if (n.some((x) => headers[i].includes(x))) return i;
-    return -1;
-  };
-  return {
-    idxTicker: find("ticker","symbol"),
-    idxCompany: find("company","name"),
-    idxSector: find("sector"),
-    idxIndustry: find("industry"),
-    idxCountry: find("country"),
-  };
-}
-
-function parseTickers(html: string) {
+function parseTickersAndNames(html: string) {
   const $ = cheerio.load(html);
-  const $table = pickMainTable($);
-  if (!$table || !$table.length) return { items: [] as any[], total: null as number | null };
+  const $table = pickScreenerTable($);
+  if (!$table) return { items: [] as Array<{ ticker: string; company: string | null }>, total: parseTotalText($.text()) };
 
-  const headers = $table.find("thead tr th").map((_, th) => normalizeHeader($(th).text())).get();
-  const idx = indexHeaders(headers);
-  const $rows = $table.find("tbody tr").length ? $table.find("tbody tr") : $table.find("tr").slice(1);
+  const $rows = ($table.find("tbody tr").length ? $table.find("tbody tr") : $table.find("tr").slice(1))
+    .filter((_, tr) => $(tr).find('a[href*="quote.ashx?t="]').length > 0);
 
-  const items: Array<{ ticker: string; company?: string | null; sector?: string | null; industry?: string | null; country?: string | null }> = [];
+  const out: Array<{ ticker: string; company: string | null }> = [];
+  const seen = new Set<string>();
 
-  $rows.each((_, tr) => {
+  $rows.each((_r, tr) => {
     const $tr = $(tr);
-    const tds = $tr.find("td");
-    if (!tds.length) return;
+    const $tds = $tr.find("td");
+    if (!$tds.length) return;
 
-    // 1) Нормальный путь — по ссылке
-    const a = $tr.find('a[href*="quote.ashx"]').first();
-    let ticker = parseTickerFromHref(a.attr("href"));
+    // найдём индекс TD, в котором ссылка на quote
+    let linkIdx = -1;
+    $tds.each((i, td) => {
+      if ($(td).find('a[href*="quote.ashx?t="]').length > 0) linkIdx = i;
+    });
+    if (linkIdx < 0) return;
 
-    // 2) Fallback — по тексту в колонке Ticker, если ссылка не нашлась
-    if (!ticker && idx.idxTicker >= 0 && idx.idxTicker < tds.length) {
-      const raw = $(tds[idx.idxTicker]).text().trim().toUpperCase();
-      if (TICKER_OK.test(raw)) ticker = raw;
+    const $link = $($tds.get(linkIdx)).find('a[href*="quote.ashx?t="]').first();
+    let ticker: string | null = null;
+    const href = $link.attr("href") || "";
+    try {
+      const u = new URL(href, "https://finviz.com/");
+      ticker = (u.searchParams.get("t") || "").toUpperCase().trim();
+    } catch { /* empty */ }
+    if (!ticker) ticker = ($link.text() || "").toUpperCase().trim();
+    if (!ticker || !TICKER_OK.test(ticker)) return;
+    if (seen.has(ticker)) return;
+
+    // соседняя ячейка справа — Company (в таблице скринера)
+    let company: string | null = null;
+    if (linkIdx + 1 < $tds.length) {
+      company = sanitizeCompany($($tds.get(linkIdx + 1)).text());
     }
-    if (!ticker) return;
 
-    const get = (i?: number) => i != null && i >= 0 && i < tds.length ? $(tds[i]).text().trim() : "";
-
-    const company = (idx.idxCompany >= 0 ? get(idx.idxCompany) : "") || null;
-    const sector  = (idx.idxSector  >= 0 ? get(idx.idxSector)  : "") || null;
-    const industry= (idx.idxIndustry>= 0 ? get(idx.idxIndustry): "") || null;
-    const country = (idx.idxCountry >= 0 ? get(idx.idxCountry) : "") || null;
-
-    // фильтр от мусора из панели (слова вроде "Valuation", "Order by", "Any ...")
-    if (looksLikeNoise(company) || looksLikeNoise(sector) || looksLikeNoise(industry) || looksLikeNoise(country)) {
-      return;
-    }
-
-    items.push({ ticker, company, sector, industry, country });
+    out.push({ ticker, company });
+    seen.add(ticker);
   });
 
-  const text = $.text();
-  const m1 = text.match(/Total:\s*([\d,]+)/i);
-  const total = m1?.[1] ? parseInt(m1[1].replace(/,/g, ""), 10) : null;
-
-  return { items, total };
+  return { items: out.slice(0, PAGE_SIZE), total: parseTotalText($.text()) };
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const page = Math.max(0, parseInt(String((req.query as any).page ?? "0"), 10) || 0);
-    const fOverride = typeof (req.query as any).f === "string" ? ((req.query as any).f as string) : undefined;
-    const fUsed = fOverride ?? DEFAULT_F;
-
+const rawF = typeof (req.query as any).f === "string" ? ((req.query as any).f as string) : undefined;
+const fUsed = normalizeFilters(rawF ?? DEFAULT_F);
     const html = await fetch(buildUrl(page, fUsed), { headers: HEADERS }).then((r) => r.text());
-    const { items, total } = parseTickers(html);
+    const { items, total } = parseTickersAndNames(html);
 
-    const startIndex = 1 + page * PAGE_SIZE;
-    const hasMore = total ? startIndex - 1 + items.length < total : items.length === PAGE_SIZE;
+    // hasMore: 20→true; иначе — если есть total, считаем точно; если нет — true пока страница не пустая
+    let hasMore = items.length === PAGE_SIZE;
+    if (!hasMore) {
+      if (typeof total === "number") hasMore = (page + 1) * PAGE_SIZE < total;
+      else hasMore = items.length > 0;
+    }
 
     res.setHeader("X-Finviz-PageSize", String(PAGE_SIZE));
     res.setHeader("X-Finviz-HasMore", hasMore ? "1" : "0");
-    res.setHeader("X-Finviz-EffectiveF", fUsed);
-    if (total != null) res.setHeader("X-Finviz-Total", String(total));
+res.setHeader("X-Finviz-EffectiveF", fUsed);
+    if (typeof total === "number") res.setHeader("X-Finviz-Total", String(total));
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=60");
+    res.setHeader("Content-Type", "application/json");
 
-    res.status(200).json({ page, pageSize: PAGE_SIZE, count: items.length, total: total ?? undefined, items });
+    res.status(200).json({ page, pageSize: PAGE_SIZE, count: items.length, total: typeof total === "number" ? total : undefined, items });
   } catch (e: any) {
     res.status(500).json({ page: 0, count: 0, items: [], error: String(e?.message || e) });
   }

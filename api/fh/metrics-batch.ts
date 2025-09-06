@@ -1,65 +1,67 @@
 // /api/fh/metrics-batch.ts
 export const runtime = "nodejs";
 
-type Metrics = {
-  marketCap?: number | null;
-  pe?: number | null;
-  ps?: number | null;
-  pb?: number | null;
-};
+type Json = Record<string, any>;
+type OutMetrics = { marketCap?: number | null; pe?: number | null; ps?: number | null; pb?: number | null };
 
-type FinnhubMetric = Record<string, any>;
+const CACHE = new Map<string, { m: OutMetrics | null; ts: number }>();
+let GLOBAL_BACKOFF_UNTIL = 0;
 
-const CACHE = new Map<string, { m: Metrics; ts: number }>();
-const FRESH_MS = 60 * 60 * 1000; // 1h в памяти
-const CONCURRENCY = 3;
-const GAP_MS = 150;
-const TIMEOUT_MS = 15000;
+const MAX_INPUT = 200;
+const FRESH_MS = 600_000;        // 10 мин кэш метрик
+const PER_REQ_GAP_MS = 200;
+const CONCURRENCY = 4;
+const GLOBAL_BACKOFF_MS = 30_000;
 
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchMetrics(sym: string, token: string): Promise<Metrics> {
-  const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
-  try {
-    const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
-    const r = await fetch(url, { cache: "no-store", signal: ctrl.signal, headers: { "user-agent": "undervalued-stocks/1.0" } });
-    if (!r.ok) return {};
-    const json = (await r.json()) as { metric?: FinnhubMetric };
-    const m = json?.metric || {};
+async function fetchMetrics(sym: string, token: string): Promise<OutMetrics | null> {
+  const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
+  const r = await fetch(url, { cache: "no-store", headers: { "user-agent": "undervalued-stocks/1.0" } });
+  if (r.status === 429) {
+    GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS;
+    return null;
+  }
+  if (!r.ok) return null;
+  const data: Json = await r.json();
+  const m: Json = data?.metric ?? {};
 
-    const pe = m.peBasicExclExtraTTM ?? m.peTTM ?? m.peAnnual ?? null;
-    const ps = m.psTTM ?? m.priceToSalesTTM ?? null;
-    const pb = m.pbMRQ ?? m.priceToBookMRQ ?? null;
-    const marketCap = m.marketCapitalization ?? null;
-
-    return { marketCap, pe, ps, pb };
-  } catch { return {}; }
-  finally { clearTimeout(to); }
+  // Finnhub иногда меняет ключи — берём с запасом
+  const out: OutMetrics = {
+    marketCap: typeof m.marketCapitalization === "number" ? m.marketCapitalization : null, // в млрд USD
+    pe: m.peBasicExclExtraTTM ?? m.peExclExtraTTM ?? m.peTTM ?? null,
+    ps: m.priceToSalesTTM ?? m.psTTM ?? null,
+    pb: m.priceToBookMRQ ?? m.priceToBookAnnual ?? null,
+  };
+  return out;
 }
 
 export default async function handler(req: any, res: any) {
   try {
-    // GET ?symbols=AAA,BBB   или POST { symbols: [] }
     const q = new URL(req.url, "http://localhost").searchParams;
+
     let symbols: string[] = [];
-    const p = (q.get("symbols") || "").trim();
-    if (p) symbols = p.split(",").map(s => s.trim()).filter(Boolean);
-    else if (req.method === "POST") {
+    const symbolsParam = (q.get("symbols") || "").trim();
+    if (symbolsParam) {
+      symbols = symbolsParam.split(",").map((s) => s.trim()).filter(Boolean);
+    } else if (req.method === "POST") {
       try {
-        let buf = ""; for await (const c of req) buf += c.toString("utf8");
-        const json = JSON.parse(buf || "{}");
-        if (Array.isArray(json?.symbols)) symbols = json.symbols.map((s: any) => String(s)).filter(Boolean);
-      } catch {/* noop */}
+        const body = await new Promise<string>((resolve) => {
+          let buf = ""; req.on("data", (c: Buffer) => (buf += c.toString("utf8"))); req.on("end", () => resolve(buf));
+        });
+        const parsed = JSON.parse(body || "{}");
+        if (Array.isArray(parsed?.symbols)) symbols = parsed.symbols.map((s: any) => String(s)).filter(Boolean);
+      } catch { /* noop */ }
     }
-    symbols = Array.from(new Set(symbols.map(s => s.trim().toUpperCase()).filter(Boolean))).slice(0, 200);
-    if (!symbols.length) {
+    symbols = Array.from(new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))).slice(0, MAX_INPUT);
+
+    if (symbols.length === 0) {
       res.statusCode = 400;
       res.setHeader("Content-Type", "application/json");
       return res.end(JSON.stringify({ error: "symbols required" }));
     }
 
-    const token = process.env.FINNHUB_TOKEN || process.env.VITE_FINNHUB_TOKEN;
+    const token = process.env.VITE_FINNHUB_TOKEN || process.env.FINNHUB_TOKEN;
     if (!token) {
       res.statusCode = 500;
       res.setHeader("Content-Type", "application/json");
@@ -67,32 +69,57 @@ export default async function handler(req: any, res: any) {
     }
 
     const now = Date.now();
-    const metrics: Record<string, Metrics> = {};
+    const underBackoff = now < GLOBAL_BACKOFF_UNTIL;
+
+    const metrics: Record<string, OutMetrics | null> = {};
     const toFetch: string[] = [];
 
-    for (const s of symbols) {
-      const hit = CACHE.get(s);
-      if (hit && now - hit.ts <= FRESH_MS) metrics[s] = hit.m;
-      else toFetch.push(s);
+    for (const sym of symbols) {
+      const hit = CACHE.get(sym);
+      if (!underBackoff && hit && now - hit.ts <= FRESH_MS) {
+        metrics[sym] = hit.m ?? null;
+      } else {
+        toFetch.push(sym);
+      }
     }
 
-    let idx = 0;
-    const worker = async () => {
-      while (idx < toFetch.length) {
-        const i = idx++; const sym = toFetch[i];
-        const m = await fetchMetrics(sym, token);
-        metrics[sym] = m;
-        CACHE.set(sym, { m, ts: Date.now() });
-        if (idx < toFetch.length) await sleep(GAP_MS);
+    if (!underBackoff && toFetch.length) {
+      let idx = 0;
+      let hit429 = false;
+
+      const worker = async () => {
+        while (idx < toFetch.length && !hit429) {
+          const my = idx++;
+          const sym = toFetch[my];
+          const m = await fetchMetrics(sym, token);
+          if (m === null && Date.now() < GLOBAL_BACKOFF_UNTIL) {
+            hit429 = true; break;
+          }
+          metrics[sym] = m ?? null;
+          CACHE.set(sym, { m: m ?? null, ts: Date.now() });
+          if (idx < toFetch.length) await sleep(PER_REQ_GAP_MS);
+        }
+      };
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () => worker()));
+    }
+
+    // добиваем пропуски кэшем/нуллами
+    for (const sym of symbols) {
+      if (!(sym in metrics)) {
+        const hit = CACHE.get(sym);
+        metrics[sym] = hit?.m ?? null;
       }
-    };
-    await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () => worker()));
+    }
 
     res.setHeader("Content-Type", "application/json");
-    // CDN кэш на 15 минут, SWR 1 час
-    res.setHeader("Cache-Control", "s-maxage=900, stale-while-revalidate=3600");
+    res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=3600");
+    if (underBackoff) {
+      res.setHeader("Retry-After", Math.ceil((GLOBAL_BACKOFF_UNTIL - Date.now()) / 1000));
+    }
+
     res.statusCode = 200;
-    res.end(JSON.stringify({ metrics, serverTs: Date.now() }));
+    res.end(JSON.stringify({ metrics, serverTs: Date.now(), backoffUntil: GLOBAL_BACKOFF_UNTIL || undefined }));
   } catch (e: any) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
