@@ -1,4 +1,3 @@
-// src/store/stocksSlice.ts
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { Stock } from "../types/stock";
 import { loadFinviz, resetFinvizEffectiveFilter } from "../api/loadBatch";
@@ -13,7 +12,7 @@ export type StocksState = {
   nextCache: Stock[] | null;
   status: "idle" | "loading" | "succeeded" | "failed";
   error?: string;
-  currentPage: number;
+  currentPage: number; // 0-based для внутренней логики
   hasMore: boolean;
 };
 
@@ -302,7 +301,7 @@ export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }
   }
 );
 
-/** Первая загрузка */
+/** Первая загрузка (историческая) */
 export const bootstrapFromFinviz = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
   void
@@ -315,7 +314,6 @@ export const bootstrapFromFinviz = createAsyncThunk<
   if (tickers0.length) {
     void (dispatch as any)(fetchQuotesBatch({ tickers: tickers0 }));
     void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers0 }));
-    // спустя ~1.2с — полные мультипликаторы
     setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickers0 })); }, 1200);
   }
 
@@ -387,6 +385,45 @@ export const loadNextAndReplace = createAsyncThunk<
   return { items: nextItems, nextCache, page: effectivePage, hasMore };
 });
 
+/** NEW: Загрузка произвольной страницы по URL (1-based) + префетч следующей */
+export const goToPage = createAsyncThunk<
+  { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
+  { page1: number }
+>("stocks/goToPage", async ({ page1 }, { dispatch }) => {
+  const page0 = Math.max(0, (page1 | 0) - 1);
+
+  // Текущая страница
+  const { page: p0, stocks: s0, hasMoreMeta: more0 } = await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
+
+  const tickers0 = s0.map((s: Stock) => s.ticker);
+  if (tickers0.length) {
+    void (dispatch as any)(fetchQuotesBatch({ tickers: tickers0 }));
+    void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers0 }));
+    setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickers0 })); }, 1200);
+  }
+
+  // Префетч следующей страницы
+  let nextCache: Stock[] | null = null;
+  let hasMore = !!more0;
+  if (more0) {
+    try {
+      const { stocks: s1, hasMoreMeta: more1 } = await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
+      nextCache = s1;
+      hasMore = more1 || s1.length > 0;
+      const tickers1 = s1.map((s: Stock) => s.ticker);
+      if (tickers1.length) {
+        void (dispatch as any)(fetchQuotesBatch({ tickers: tickers1 }));
+        void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers1 }));
+        setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickers1 })); }, 1500);
+      }
+    } catch {
+      nextCache = null;
+    }
+  }
+
+  return { items: s0, nextCache, page: p0, hasMore: hasMore || Boolean(nextCache?.length) };
+});
+
 // ---------- slice ----------
 const stocksSlice = createSlice({
   name: "stocks",
@@ -403,6 +440,7 @@ const stocksSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
+      // bootstrap
       .addCase(bootstrapFromFinviz.pending, (state) => {
         state.status = "loading";
         state.error = undefined;
@@ -418,6 +456,8 @@ const stocksSlice = createSlice({
         state.status = "failed";
         state.error = action.error?.message || "Unknown error";
       })
+
+      // next
       .addCase(loadNextAndReplace.pending, (state) => {
         state.status = "loading";
         state.error = undefined;
@@ -433,6 +473,24 @@ const stocksSlice = createSlice({
         state.status = "failed";
         state.error = action.error?.message || "Unknown error";
       })
+
+      // goToPage
+      .addCase(goToPage.pending, (state) => {
+        state.status = "loading";
+        state.error = undefined;
+      })
+      .addCase(goToPage.fulfilled, (state, action) => {
+        state.status = "succeeded";
+        state.items = action.payload.items;
+        state.nextCache = action.payload.nextCache;
+        state.currentPage = action.payload.page; // 0-based
+        state.hasMore = action.payload.hasMore;
+      })
+      .addCase(goToPage.rejected, (state, action) => {
+        state.status = "failed";
+        state.error = action.error?.message || "Unknown error";
+      })
+
       .addCase(mergeStockPatch, (state, action: PayloadAction<any>) => {
         const i = state.items.findIndex((s) => s.ticker === action.payload.ticker);
         if (i !== -1) state.items[i] = { ...(state.items[i] as any), ...action.payload } as Stock;

@@ -1,11 +1,11 @@
-// src/pages/Home.tsx
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
 import StockList from "../components/StockList";
-import { bootstrapFromFinviz, loadNextAndReplace } from "../store/stocksSlice";
+import { goToPage } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
 
 import CryptoMarquee from "../components/CryptoMarquee";
@@ -18,23 +18,43 @@ import styles from "./home.module.css";
 
 export const Home = () => {
   const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const params = useParams<{ page?: string }>();
+
+  const page1 = Math.max(1, Number(params.page ?? "1") || 1);
+
   const { items, status, hasMore } = useAppSelector((s) => s.stocks);
 
-useEffect(() => {
-  dispatch(bootstrapFromFinviz());
-}, [dispatch]);
+  // --- Якорь начала карточек ---
+  const cardsTopRef = useRef<HTMLDivElement | null>(null);
+  const prevPageRef = useRef<number | null>(null);
 
+  // Загружаем данные для конкретной страницы из URL
+  useEffect(() => {
+    void dispatch(goToPage({ page1 }));
+  }, [dispatch, page1]);
+
+  // После успешной загрузки новой страницы — мягкий скролл к началу карточек
+  useEffect(() => {
+    const prev = prevPageRef.current;
+    const isPageChanged = prev !== null && prev !== page1;
+    if (status === "succeeded" && (isPageChanged || prev !== null)) {
+      cardsTopRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    if (status === "succeeded") prevPageRef.current = page1;
+  }, [page1, status]);
 
   const visibleStocks = useMemo<Stock[]>(() => items, [items]);
   const mkt = getMarketSession();
 
-  const onLoadMore = async () => {
-    try {
-      await dispatch(loadNextAndReplace()).unwrap();
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.warn("Load next 20 failed:", e);
+  const onPrev = () => {
+    if (page1 > 1) {
+      navigate(`/${page1 - 1}`);
+    }
+  };
+  const onNext = () => {
+    if (hasMore) {
+      navigate(`/${page1 + 1}`);
     }
   };
 
@@ -67,19 +87,36 @@ useEffect(() => {
         {status === "failed" && (
           <div className={styles.error}>
             Fetch failed.{" "}
-            <button onClick={() => dispatch(bootstrapFromFinviz())}>Retry</button>
+            <button onClick={() => dispatch(goToPage({ page1 }))}>Retry</button>
           </div>
         )}
 
         <main className={styles.listArea}>
+          {/* --- Якорь начала карточек (учитывает фиксированный Header) --- */}
+          <div ref={cardsTopRef} style={{ scrollMarginTop: 80 }} />
+
           <StockList stocks={visibleStocks} />
-          <div className={styles.moreRow}>
+
+          {/* Пэйджер */}
+          <div className={styles.moreRow} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            {page1 > 1 && (
+              <button
+                className={styles.moreBtn}
+                onClick={onPrev}
+                disabled={status === "loading"}
+              >
+                Prev 20
+              </button>
+            )}
+
+            <div style={{ alignSelf: "center", opacity: 0.8 }}>Page {page1}</div>
+
             <button
               className={styles.moreBtn}
-              onClick={onLoadMore}
+              onClick={onNext}
               disabled={!hasMore || status === "loading"}
             >
-              {status === "loading" ? "Loading…" : hasMore ? "Load next 20" : "End of list"}
+              {status === "loading" ? "Loading…" : "Next 20"}
             </button>
           </div>
         </main>
