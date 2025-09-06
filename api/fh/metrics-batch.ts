@@ -1,4 +1,3 @@
-// /api/fh/metrics-batch.ts
 export const runtime = "nodejs";
 
 type Json = Record<string, any>;
@@ -6,99 +5,80 @@ type OutMetrics = {
   // ВСЕГДА в МИЛЛИОНАХ USD
   marketCapM?: number | null;
 
-  // мультипликаторы (full)
+  // мультипликаторы
   pe?: number | null;
   ps?: number | null;
   pb?: number | null;
-  beta?: number | null;
-  dividendYield?: number | null; // %
 
-  // базовый профиль (lite)
+  // профиль
   name?: string | null;
-  industry?: string | null; // finnhubIndustry
   exchange?: string | null;
   country?: string | null;
   currency?: string | null;
-  logo?: string | null;
+  industry?: string | null;
 };
 
 const CACHE = new Map<string, { m: OutMetrics | null; ts: number }>();
 let GLOBAL_BACKOFF_UNTIL = 0;
 
 const MAX_INPUT = 200;
-const FRESH_MS = 600_000;    // 10 мин кэш метрик
-const PER_REQ_GAP_MS = 200;  // пауза между символами в воркере
-const CONCURRENCY = 4;       // безопасная конкуррентность
+const FRESH_MS = 600_000;   // 10 мин
+const PER_REQ_GAP_MS = 200;
+const CONCURRENCY = 4;
 const GLOBAL_BACKOFF_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-function normalizeCapToMillions(v?: number | null): number | null {
-  // Приводим к МИЛЛИОНАМ USD. Finnhub profile2.marketCapitalization чаще в млрд.
+/** profile2.marketCapitalization уже в МИЛЛИОНАХ USD — без умножений */
+function capFromProfile2(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  let m = v * 1000; // предположим, что это млрд -> млн
-  // Если пришли уже миллионы — защита от «раздувания»
-  while (m > 5_000_000) m = m / 1000; // 5 трлн верхний порог
-  return m;
+  return v;
 }
 
 async function fetchProfile(sym: string, token: string): Promise<Partial<OutMetrics> | null> {
   const url = `https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${token}`;
   const r = await fetch(url, { cache: "no-store", headers: { "user-agent": "undervalued-stocks/1.0" } });
-  if (r.status === 429) {
-    GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS;
-    return null;
-  }
+  if (r.status === 429) { GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS; return null; }
   if (!r.ok) return null;
 
   const p: Json = await r.json();
-  const out: Partial<OutMetrics> = {
+  return {
     name: typeof p.name === "string" && p.name.trim() ? p.name.trim() : null,
     exchange: p.exchange ?? null,
     country: p.country ?? null,
     currency: p.currency ?? null,
-    logo: typeof p.logo === "string" ? p.logo : null,
-    industry: typeof p.finnhubIndustry === "string" ? p.finnhubIndustry : null,
-    marketCapM: normalizeCapToMillions(
-      typeof p.marketCapitalization === "number" ? p.marketCapitalization : null
-    ),
+    industry: p.finnhubIndustry ?? null,
+    marketCapM: capFromProfile2(typeof p.marketCapitalization === "number" ? p.marketCapitalization : null),
   };
-  return out;
 }
 
 async function fetchRatios(sym: string, token: string): Promise<Partial<OutMetrics> | null> {
   const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(sym)}&metric=all&token=${token}`;
   const r = await fetch(url, { cache: "no-store", headers: { "user-agent": "undervalued-stocks/1.0" } });
-  if (r.status === 429) {
-    GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS;
-    return null;
-  }
+  if (r.status === 429) { GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS; return null; }
   if (!r.ok) return null;
 
   const data: Json = await r.json();
   const m: Json = data?.metric ?? {};
-  const out: Partial<OutMetrics> = {
+  return {
     pe: m.peBasicExclExtraTTM ?? m.peExclExtraTTM ?? m.peTTM ?? null,
     ps: m.priceToSalesTTM ?? m.psTTM ?? null,
     pb: m.priceToBookMRQ ?? m.priceToBookAnnual ?? null,
-    beta: typeof m.betaTTM === "number"
-      ? m.betaTTM
-      : (typeof m.beta === "number" ? m.beta : null),
-    dividendYield: typeof m.dividendYieldIndicatedAnnual === "number"
-      ? m.dividendYieldIndicatedAnnual
-      : (typeof m.dividendYieldTTM === "number" ? m.dividendYieldTTM : null),
   };
-  return out;
 }
 
 export default async function handler(req: any, res: any) {
   try {
     const q = new URL(req.url, "http://localhost").searchParams;
 
-    // режим: lite=1 -> только профиль; иначе full (профиль + мульты)
-    const lite = ["1", "true", "yes"].includes((q.get("lite") || "").trim().toLowerCase());
+    // режимы:
+    // lite=1  -> только профиль (name/cap/industry/geo)
+    // lite=0  -> только мультипликаторы (pe/ps/pb)
+    // отсутствует -> полный (и профиль, и мультипликаторы)
+    const liteParam = q.get("lite");
+    const mode: "lite" | "ratios" | "full" =
+      liteParam === "1" ? "lite" : liteParam === "0" ? "ratios" : "full";
 
-    // GET ?symbols=AAA,BBB или POST { symbols: [] }
     let symbols: string[] = [];
     const symbolsParam = (q.get("symbols") || "").trim();
     if (symbolsParam) {
@@ -110,7 +90,7 @@ export default async function handler(req: any, res: any) {
         });
         const parsed = JSON.parse(body || "{}");
         if (Array.isArray(parsed?.symbols)) symbols = parsed.symbols.map((s: any) => String(s)).filter(Boolean);
-      } catch { /* noop */ }
+      } catch { /* empty */ }
     }
     symbols = Array.from(new Set(symbols.map((s) => s.trim().toUpperCase()).filter(Boolean))).slice(0, MAX_INPUT);
 
@@ -151,13 +131,13 @@ export default async function handler(req: any, res: any) {
           const my = idx++;
           const sym = toFetch[my];
 
-          // профиль обязателен
-          const prof = await fetchProfile(sym, token);
-          if (prof === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
-
-          let merged: OutMetrics = { ...(prof ?? {}) };
-
-          if (!lite) {
+          let merged: OutMetrics = {};
+          if (mode === "lite" || mode === "full") {
+            const prof = await fetchProfile(sym, token);
+            if (prof === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
+            merged = { ...merged, ...(prof ?? {}) };
+          }
+          if (mode === "ratios" || mode === "full") {
             const ratios = await fetchRatios(sym, token);
             if (ratios === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
             merged = { ...merged, ...(ratios ?? {}) };
@@ -188,12 +168,7 @@ export default async function handler(req: any, res: any) {
     }
 
     res.statusCode = 200;
-    res.end(JSON.stringify({
-      metrics,
-      mode: lite ? "lite" : "full",
-      serverTs: Date.now(),
-      backoffUntil: GLOBAL_BACKOFF_UNTIL || undefined
-    }));
+    res.end(JSON.stringify({ metrics, serverTs: Date.now(), backoffUntil: GLOBAL_BACKOFF_UNTIL || undefined }));
   } catch (e: any) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");

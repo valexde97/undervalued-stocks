@@ -28,10 +28,19 @@ const initialState: StocksState = {
 // ---------- helpers ----------
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
 
-function normalizeCapToMillions(v?: number | null): number | null {
+/** Значение уже в МИЛЛИОНАХ USD — возвращаем как есть (для profile2.marketCapitalization) */
+function capMillions(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  let m = v * 1000; // предполагаем, что исходно в млрд
-  while (m > 5_000_000) m = m / 1000; // защита от «космоса»
+  // safety clamp against garbage
+  if (v > 5_000_000) return 5_000_000; // 5 трлн — верх
+  return v;
+}
+
+/** Легаси путь: из МИЛЛИАРДОВ -> в МИЛЛИОНЫ (на случай старого server JSON) */
+function billionsToMillions(v?: number | null): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
+  let m = v * 1000;
+  while (m > 5_000_000) m /= 1000;
   return m;
 }
 
@@ -102,8 +111,8 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       marketCapText: null,
 
       // будем заполнять из Finnhub profile (lite)
-      sector: null,            // у Finnhub сектора нет — оставим null
-      industry: null,          // finnhubIndustry -> сюда
+      sector: null,    // у Finnhub сектора нет
+      industry: null,  // finnhubIndustry -> сюда
       country: null,
 
       beta: null,
@@ -169,6 +178,7 @@ type LiteMetrics = {
   currency?: string | null;
   logo?: string | null;
 };
+
 export const fetchMetricsLiteBatch = createAsyncThunk<void, { tickers: string[] }>(
   "stocks/fetchMetricsLiteBatch",
   async ({ tickers }, { dispatch }) => {
@@ -184,7 +194,7 @@ export const fetchMetricsLiteBatch = createAsyncThunk<void, { tickers: string[] 
     for (const [symbol, m] of Object.entries(map)) {
       if (!symbol || !m) continue;
 
-      const capM = typeof m.marketCapM === "number" ? m.marketCapM : null;
+      const capM = capMillions(m.marketCapM ?? null);
 
       let category: Stock["category"] | undefined;
       if (typeof capM === "number") {
@@ -210,11 +220,15 @@ export const fetchMetricsLiteBatch = createAsyncThunk<void, { tickers: string[] 
 
 // ---------- Metrics: FULL (metric=all) ----------
 type FullMetrics = LiteMetrics & {
-  pe?: number | null; ps?: number | null; pb?: number | null;
-  beta?: number | null; dividendYield?: number | null;
-  marketCap?: number | null; // на всякий случай (legacy)
-  marketCapM?: number | null;
+  pe?: number | null;
+  ps?: number | null;
+  pb?: number | null;
+  beta?: number | null;
+  dividendYield?: number | null;
+  marketCap?: number | null;   // legacy (в млрд), если вдруг прилетит
+  marketCapM?: number | null;  // предпочтительно
 };
+
 export const fetchMetricsFullBatch = createAsyncThunk<void, { tickers: string[] }>(
   "stocks/fetchMetricsFullBatch",
   async ({ tickers }, { dispatch }) => {
@@ -230,12 +244,11 @@ export const fetchMetricsFullBatch = createAsyncThunk<void, { tickers: string[] 
     for (const [symbol, m] of Object.entries(map)) {
       if (!symbol || !m) continue;
 
-      // market cap: prefer marketCapM (уже в млн), иначе legacy marketCap (в млрд) -> млн
       const capM =
         typeof m.marketCapM === "number"
-          ? m.marketCapM
+          ? capMillions(m.marketCapM)
           : typeof m.marketCap === "number"
-          ? normalizeCapToMillions(m.marketCap)
+          ? billionsToMillions(m.marketCap)
           : null;
 
       let category: Stock["category"] | undefined;
@@ -282,7 +295,6 @@ export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }
   async ({ ticker }, { dispatch }) => {
     const t = ticker.trim().toUpperCase();
     if (!t) return;
-    // подгружаем котировку и ПОЛНЫЕ метрики немедленно
     await Promise.allSettled([
       dispatch(fetchQuotesBatch({ tickers: [t] })),
       dispatch(fetchMetricsFullBatch({ tickers: [t] })),
@@ -297,26 +309,26 @@ export const bootstrapFromFinviz = createAsyncThunk<
 >("stocks/bootstrapFromFinviz", async (_arg, { dispatch }) => {
   resetFinvizEffectiveFilter();
 
-  const { page: p0, stocks: s0, hasMoreMeta: more0 } = await dispatch(fetchFinvizPage({ page: 0 })).unwrap();
+  const { page: p0, stocks: s0, hasMoreMeta: more0 } = await (dispatch as any)(fetchFinvizPage({ page: 0 })).unwrap();
 
-  const tickers0 = s0.map((s) => s.ticker);
+  const tickers0 = s0.map((s: Stock) => s.ticker);
   if (tickers0.length) {
-    void dispatch(fetchQuotesBatch({ tickers: tickers0 }));
-    void dispatch(fetchMetricsLiteBatch({ tickers: tickers0 }));
-    // спустя ~1.2с — full
-    setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickers0 })); }, 1200);
+    void (dispatch as any)(fetchQuotesBatch({ tickers: tickers0 }));
+    void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers0 }));
+    // спустя ~1.2с — полные мультипликаторы
+    setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickers0 })); }, 1200);
   }
 
   let nextCache: Stock[] | null = null;
   if (more0) {
     try {
-      const { stocks: s1 } = await dispatch(fetchFinvizPage({ page: 1 })).unwrap();
+      const { stocks: s1 } = await (dispatch as any)(fetchFinvizPage({ page: 1 })).unwrap();
       nextCache = s1;
-      const tickers1 = s1.map((s) => s.ticker);
+      const tickers1 = s1.map((s: Stock) => s.ticker);
       if (tickers1.length) {
-        void dispatch(fetchQuotesBatch({ tickers: tickers1 }));
-        void dispatch(fetchMetricsLiteBatch({ tickers: tickers1 }));
-        setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickers1 })); }, 1500);
+        void (dispatch as any)(fetchQuotesBatch({ tickers: tickers1 }));
+        void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers1 }));
+        setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickers1 })); }, 1500);
       }
     } catch {
       nextCache = null;
@@ -339,7 +351,7 @@ export const loadNextAndReplace = createAsyncThunk<
   let effectivePage = wantPage;
 
   if (nextItems.length === 0) {
-    const { page, stocks } = await dispatch(fetchFinvizPage({ page: wantPage })).unwrap();
+    const { page, stocks } = await (dispatch as any)(fetchFinvizPage({ page: wantPage })).unwrap();
     nextItems = stocks;
     effectivePage = page;
   }
@@ -350,22 +362,22 @@ export const loadNextAndReplace = createAsyncThunk<
 
   const tickers = nextItems.map((s) => s.ticker);
   if (tickers.length) {
-    void dispatch(fetchQuotesBatch({ tickers }));
-    void dispatch(fetchMetricsLiteBatch({ tickers }));
-    setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers })); }, 1200);
+    void (dispatch as any)(fetchQuotesBatch({ tickers }));
+    void (dispatch as any)(fetchMetricsLiteBatch({ tickers }));
+    setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers })); }, 1200);
   }
 
   let nextCache: Stock[] | null = null;
   let hasMore = true;
   try {
-    const { stocks: sNext, hasMoreMeta } = await dispatch(fetchFinvizPage({ page: effectivePage + 1 })).unwrap();
+    const { stocks: sNext, hasMoreMeta } = await (dispatch as any)(fetchFinvizPage({ page: effectivePage + 1 })).unwrap();
     nextCache = sNext;
     hasMore = hasMoreMeta || (sNext.length > 0);
-    const tickersNext = sNext.map((s) => s.ticker);
+    const tickersNext = sNext.map((s: Stock) => s.ticker);
     if (tickersNext.length) {
-      void dispatch(fetchQuotesBatch({ tickers: tickersNext }));
-      void dispatch(fetchMetricsLiteBatch({ tickers: tickersNext }));
-      setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickersNext })); }, 1500);
+      void (dispatch as any)(fetchQuotesBatch({ tickers: tickersNext }));
+      void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickersNext }));
+      setTimeout(() => { void (dispatch as any)(fetchMetricsFullBatch({ tickers: tickersNext })); }, 1500);
     }
   } catch {
     hasMore = false;

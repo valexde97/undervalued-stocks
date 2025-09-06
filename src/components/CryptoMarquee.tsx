@@ -49,7 +49,7 @@ export default function CryptoMarquee() {
 
   useEffect(() => {
     void poll(); // first request immediately
-    const id = window.setInterval(poll, 50_000); // <-- 50s
+const id = window.setInterval(poll, 50_000);
     tickRef.current = id;
     return () => {
       if (tickRef.current != null) window.clearInterval(tickRef.current);
