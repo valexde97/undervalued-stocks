@@ -35,7 +35,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
     if (inView) controls.start("visible");
   }, [inView, controls]);
 
-  const title = `${(stock as any)?.company ?? stock.name ?? stock.ticker} (${stock.ticker})`;
+  const title = `${stock.name ?? stock.ticker} (${stock.ticker})`;
 
   const day = useMemo(() => {
     const open = (stock as any)?.open ?? null;
@@ -65,8 +65,6 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       : "—";
 
   const dayRangeText = day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
-
-  // безопасная цена: не показываем $0.00
   const hasPrice = typeof day.price === "number" && Number.isFinite(day.price) && day.price > 0;
 
   // метрики: предпочитаем Finnhub, иначе finviz snapshot
@@ -118,10 +116,6 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       </div>
 
       <div className={styles.inlineRow}>
-        <span className={styles.kv}>
-          <span className={styles.k}>Sector:</span> <span className={styles.v}>{stock.sector ?? "—"}</span>
-        </span>
-        <span className={styles.dot}>•</span>
         <span className={styles.kv}>
           <span className={styles.k}>Industry:</span> <span className={styles.v}>{stock.industry ?? "—"}</span>
         </span>
@@ -181,7 +175,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
   );
 };
 
-// Более «честное» сравнение пропсов, чтобы карточка обновлялась при прихождении метрик
+// «честное» сравнение пропсов (чтобы карточка обновлялась на метриках)
 function eq(a: Props, b: Props) {
   const sa = a.stock as any;
   const sb = b.stock as any;
@@ -195,11 +189,9 @@ function eq(a: Props, b: Props) {
     sa.prevClose === sb.prevClose &&
     a.stock.pe === b.stock.pe &&
     a.stock.ps === b.stock.ps &&
-    a.stock.pb === b.stock.pb && // добавлено
-    a.stock.marketCap === b.stock.marketCap && // добавлено
-    a.stock.category === b.stock.category && // добавлено
-    (sa.marketCapText ?? null) === (sb.marketCapText ?? null) &&
-    (a.stock.sector ?? null) === (b.stock.sector ?? null) &&
+    a.stock.pb === b.stock.pb &&
+    a.stock.marketCap === b.stock.marketCap &&
+    a.stock.category === b.stock.category &&
     (a.stock.industry ?? null) === (b.stock.industry ?? null) &&
     (a.stock.country ?? null) === (b.stock.country ?? null)
   );

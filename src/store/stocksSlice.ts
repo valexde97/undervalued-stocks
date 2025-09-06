@@ -81,12 +81,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
     if (seen.has(row.ticker)) continue;
 
     const ticker: string = row.ticker;
-
-    // Не выбрасываем карточку из-за «шумной» company — просто обнулим её.
     const name = cleanField(row.company, ticker) ?? ticker;
-    const sector = cleanField(row.sector, ticker);
-    const industry = cleanField(row.industry, ticker);
-    const country = cleanField(row.country, ticker);
 
     out.push({
       ticker,
@@ -94,6 +89,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       category: "small",
       price: null,
       changePct: null,
+
       pe: null,
       ps: null,
       pb: null,
@@ -101,16 +97,23 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       debtToEquity: null,
       grossMargin: null,
       netMargin: null,
+
       marketCap: null,
       marketCapText: null,
+
+      // будем заполнять из Finnhub profile (lite)
+      sector: null,            // у Finnhub сектора нет — оставим null
+      industry: null,          // finnhubIndustry -> сюда
+      country: null,
+
+      beta: null,
+      dividendYield: null,
+
       peSnapshot: null,
       psSnapshot: null,
       pbSnapshot: null,
-      sector,
-      industry,
-      country,
-      beta: null,
-      dividendYield: null,
+
+      listedAt: undefined,
       potentialScore: null,
       reasons: [],
     });
@@ -121,7 +124,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
   return out;
 }
 
-// ---------- Batch quotes ----------
+// ---------- Quotes (быстрые котировки) ----------
 export const fetchQuotesBatch = createAsyncThunk<void, { tickers: string[] }>(
   "stocks/fetchQuotesBatch",
   async ({ tickers }, { dispatch }) => {
@@ -156,24 +159,72 @@ export const fetchQuotesBatch = createAsyncThunk<void, { tickers: string[] }>(
   }
 );
 
-// ---------- Batch metrics ----------
-type Metrics = {
-  marketCapM?: number | null;   // предпочтительно (млн USD)
-  marketCap?: number | null;    // legacy: в млрд (если прилетит старый формат)
-  pe?: number | null;
-  ps?: number | null;
-  pb?: number | null;
+// ---------- Metrics: LITE (profile2) ----------
+type LiteMetrics = {
+  marketCapM?: number | null;
   name?: string | null;
+  industry?: string | null;
+  exchange?: string | null;
+  country?: string | null;
+  currency?: string | null;
+  logo?: string | null;
 };
-
-export const fetchMetricsBatch = createAsyncThunk<void, { tickers: string[] }>(
-  "stocks/fetchMetricsBatch",
+export const fetchMetricsLiteBatch = createAsyncThunk<void, { tickers: string[] }>(
+  "stocks/fetchMetricsLiteBatch",
   async ({ tickers }, { dispatch }) => {
     const unique = Array.from(new Set(tickers)).filter(Boolean);
     if (unique.length === 0) return;
 
     const qs = encodeURIComponent(unique.join(","));
-    const data = await fetchJSON<{ metrics: Record<string, Metrics | null> }>(`/api/fh/metrics-batch?symbols=${qs}`);
+    const data = await fetchJSON<{ metrics: Record<string, LiteMetrics | null> }>(
+      `/api/fh/metrics-batch?lite=1&symbols=${qs}`
+    );
+    const map = data?.metrics ?? {};
+
+    for (const [symbol, m] of Object.entries(map)) {
+      if (!symbol || !m) continue;
+
+      const capM = typeof m.marketCapM === "number" ? m.marketCapM : null;
+
+      let category: Stock["category"] | undefined;
+      if (typeof capM === "number") {
+        if (capM >= 10000) category = "large";
+        else if (capM >= 2000) category = "mid";
+        else category = "small";
+      }
+
+      const patch: any = {
+        ticker: symbol,
+        marketCap: capM,
+        ...(typeof m.name === "string" && m.name.trim() ? { name: m.name.trim() } : {}),
+        ...(typeof m.industry === "string" ? { industry: m.industry } : {}),
+        ...(typeof m.country === "string" ? { country: m.country } : {}),
+      };
+      if (category) patch.category = category;
+      if (m.logo) patch.logo = m.logo;
+
+      dispatch(mergeStockPatch(patch));
+    }
+  }
+);
+
+// ---------- Metrics: FULL (metric=all) ----------
+type FullMetrics = LiteMetrics & {
+  pe?: number | null; ps?: number | null; pb?: number | null;
+  beta?: number | null; dividendYield?: number | null;
+  marketCap?: number | null; // на всякий случай (legacy)
+  marketCapM?: number | null;
+};
+export const fetchMetricsFullBatch = createAsyncThunk<void, { tickers: string[] }>(
+  "stocks/fetchMetricsFullBatch",
+  async ({ tickers }, { dispatch }) => {
+    const unique = Array.from(new Set(tickers)).filter(Boolean);
+    if (unique.length === 0) return;
+
+    const qs = encodeURIComponent(unique.join(","));
+    const data = await fetchJSON<{ metrics: Record<string, FullMetrics | null> }>(
+      `/api/fh/metrics-batch?symbols=${qs}`
+    );
     const map = data?.metrics ?? {};
 
     for (const [symbol, m] of Object.entries(map)) {
@@ -187,7 +238,6 @@ export const fetchMetricsBatch = createAsyncThunk<void, { tickers: string[] }>(
           ? normalizeCapToMillions(m.marketCap)
           : null;
 
-      // категория по капе (условная шкала)
       let category: Stock["category"] | undefined;
       if (typeof capM === "number") {
         if (capM >= 10000) category = "large";
@@ -195,24 +245,26 @@ export const fetchMetricsBatch = createAsyncThunk<void, { tickers: string[] }>(
         else category = "small";
       }
 
-      // мержим всё полезное
       const patch: any = {
         ticker: symbol,
         marketCap: capM,
         pe: m.pe ?? null,
         ps: m.ps ?? null,
         pb: m.pb ?? null,
+        beta: m.beta ?? null,
+        dividendYield: m.dividendYield ?? null,
       };
-      if (typeof m.name === "string" && m.name.trim()) {
-        patch.name = m.name.trim();
-      }
+
+      if (typeof m.name === "string" && m.name.trim()) patch.name = m.name.trim();
+      if (typeof m.industry === "string") patch.industry = m.industry;
+      if (typeof m.country === "string") patch.country = m.country;
+      if (m.logo) patch.logo = m.logo;
       if (category) patch.category = category;
 
       dispatch(mergeStockPatch(patch));
     }
   }
 );
-
 
 // ---------- Finviz page fetch ----------
 export const fetchFinvizPage = createAsyncThunk<
@@ -223,6 +275,20 @@ export const fetchFinvizPage = createAsyncThunk<
   const stocks = mapFinvizItemsToStocks(items);
   return { page, stocks, hasMoreMeta: !!meta?.hasMore };
 });
+
+/** Быстрый приоритет для карточки деталей */
+export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }>(
+  "stocks/prioritizeDetailsTicker",
+  async ({ ticker }, { dispatch }) => {
+    const t = ticker.trim().toUpperCase();
+    if (!t) return;
+    // подгружаем котировку и ПОЛНЫЕ метрики немедленно
+    await Promise.allSettled([
+      dispatch(fetchQuotesBatch({ tickers: [t] })),
+      dispatch(fetchMetricsFullBatch({ tickers: [t] })),
+    ]);
+  }
+);
 
 /** Первая загрузка */
 export const bootstrapFromFinviz = createAsyncThunk<
@@ -236,7 +302,9 @@ export const bootstrapFromFinviz = createAsyncThunk<
   const tickers0 = s0.map((s) => s.ticker);
   if (tickers0.length) {
     void dispatch(fetchQuotesBatch({ tickers: tickers0 }));
-    void dispatch(fetchMetricsBatch({ tickers: tickers0 }));
+    void dispatch(fetchMetricsLiteBatch({ tickers: tickers0 }));
+    // спустя ~1.2с — full
+    setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickers0 })); }, 1200);
   }
 
   let nextCache: Stock[] | null = null;
@@ -247,7 +315,8 @@ export const bootstrapFromFinviz = createAsyncThunk<
       const tickers1 = s1.map((s) => s.ticker);
       if (tickers1.length) {
         void dispatch(fetchQuotesBatch({ tickers: tickers1 }));
-        void dispatch(fetchMetricsBatch({ tickers: tickers1 }));
+        void dispatch(fetchMetricsLiteBatch({ tickers: tickers1 }));
+        setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickers1 })); }, 1500);
       }
     } catch {
       nextCache = null;
@@ -282,7 +351,8 @@ export const loadNextAndReplace = createAsyncThunk<
   const tickers = nextItems.map((s) => s.ticker);
   if (tickers.length) {
     void dispatch(fetchQuotesBatch({ tickers }));
-    void dispatch(fetchMetricsBatch({ tickers }));
+    void dispatch(fetchMetricsLiteBatch({ tickers }));
+    setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers })); }, 1200);
   }
 
   let nextCache: Stock[] | null = null;
@@ -294,7 +364,8 @@ export const loadNextAndReplace = createAsyncThunk<
     const tickersNext = sNext.map((s) => s.ticker);
     if (tickersNext.length) {
       void dispatch(fetchQuotesBatch({ tickers: tickersNext }));
-      void dispatch(fetchMetricsBatch({ tickers: tickersNext }));
+      void dispatch(fetchMetricsLiteBatch({ tickers: tickersNext }));
+      setTimeout(() => { void dispatch(fetchMetricsFullBatch({ tickers: tickersNext })); }, 1500);
     }
   } catch {
     hasMore = false;

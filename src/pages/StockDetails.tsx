@@ -1,33 +1,44 @@
+// src/pages/StockDetails.tsx  (если у тебя путь другой — помести туда)
 import { useParams } from "react-router-dom";
 import { useState, useEffect } from "react";
-import Skeleton from 'react-loading-skeleton';
-import 'react-loading-skeleton/dist/skeleton.css';
+import Skeleton from "react-loading-skeleton";
+import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import styles from './stockDetails.module.css';
+import styles from "./stockDetails.module.css";
+import { useAppDispatch } from "../store/index";
+import { prioritizeDetailsTicker } from "../store/stocksSlice";
 
 export const StockDetails = () => {
   const { t } = useTranslation();
   const { ticker } = useParams<{ ticker: string }>();
   const [isLoading, setIsLoading] = useState(true);
+  const dispatch = useAppDispatch();
+
+  useEffect(() => {
+    if (ticker) {
+      // приоритетная загрузка котировок и ПОЛНЫХ метрик
+      void dispatch(prioritizeDetailsTicker({ ticker }));
+    }
+  }, [ticker, dispatch]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, []);
 
   const dummyData = {
     name: "Company Name Placeholder",
     price: 150,
     category: "large",
     listedAt: new Date("2010-06-29"),
-    description: t("stockDetails.description")
+    description: t("stockDetails.description"),
   };
 
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsLoading(false);
-    }, 2000);
-    return () => clearTimeout(timer);
-  }, []);
-
   return (
-    <motion.div 
+    <motion.div
       className={styles.wrapper}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}

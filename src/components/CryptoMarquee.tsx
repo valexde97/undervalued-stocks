@@ -15,7 +15,6 @@ const SYMBOLS = [
 ];
 
 function short(sym: string) {
-  // BINANCE:BTCUSDT -> BTC
   const m = sym.match(/:([A-Z]+)USDT$/);
   return m ? m[1] : sym;
 }
@@ -50,7 +49,7 @@ export default function CryptoMarquee() {
 
   useEffect(() => {
     void poll(); // first request immediately
-    const id = window.setInterval(poll, 20_000);
+    const id = window.setInterval(poll, 50_000); // <-- 50s
     tickRef.current = id;
     return () => {
       if (tickRef.current != null) window.clearInterval(tickRef.current);
@@ -87,9 +86,9 @@ export default function CryptoMarquee() {
             border: "1px solid var(--border)",
             borderRadius: 10,
             whiteSpace: "nowrap",
-            background: "var(--card-bg)",   // <— твёрдый фон вместо прозрачного
-            boxShadow: "var(--shadow)",     // <— как у остальных карточек
-            opacity: r.cached ? 0.9 : 1,    // лёгкий намёк на кеш, но без «призрака» в лайте
+            background: "var(--card-bg)",
+            boxShadow: "var(--shadow)",
+            opacity: r.cached ? 0.9 : 1,
             flex: "0 0 auto",
             minWidth: 130,
           }}

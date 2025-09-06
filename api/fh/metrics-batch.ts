@@ -5,35 +5,40 @@ type Json = Record<string, any>;
 type OutMetrics = {
   // ВСЕГДА в МИЛЛИОНАХ USD
   marketCapM?: number | null;
-  // мультипликаторы
+
+  // мультипликаторы (full)
   pe?: number | null;
   ps?: number | null;
   pb?: number | null;
-  // базовый профиль
+  beta?: number | null;
+  dividendYield?: number | null; // %
+
+  // базовый профиль (lite)
   name?: string | null;
+  industry?: string | null; // finnhubIndustry
   exchange?: string | null;
   country?: string | null;
   currency?: string | null;
+  logo?: string | null;
 };
 
 const CACHE = new Map<string, { m: OutMetrics | null; ts: number }>();
 let GLOBAL_BACKOFF_UNTIL = 0;
 
 const MAX_INPUT = 200;
-const FRESH_MS = 600_000;       // 10 мин кэш метрик
-const PER_REQ_GAP_MS = 200;     // пауза между символами в воркере
-const CONCURRENCY = 4;          // 4-6 было в ТЗ — ставлю 4 как безопасно
+const FRESH_MS = 600_000;    // 10 мин кэш метрик
+const PER_REQ_GAP_MS = 200;  // пауза между символами в воркере
+const CONCURRENCY = 4;       // безопасная конкуррентность
 const GLOBAL_BACKOFF_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function normalizeCapToMillions(v?: number | null): number | null {
-  // На практике finnhub profile2.marketCapitalization чаще в миллиардах,
-  // но иногда уже в миллионах. Приводим к МИЛЛИОНАМ надежно.
+  // Приводим к МИЛЛИОНАМ USD. Finnhub profile2.marketCapitalization чаще в млрд.
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  let m = v * 1000; // предполагаем, что пришло в млрд -> млн
-  // если «раздулось» сверх разумного, понижаем масштаб
-  while (m > 5_000_000) m = m / 1000; // 5 трлн. — безопасный верхний порог
+  let m = v * 1000; // предположим, что это млрд -> млн
+  // Если пришли уже миллионы — защита от «раздувания»
+  while (m > 5_000_000) m = m / 1000; // 5 трлн верхний порог
   return m;
 }
 
@@ -52,6 +57,8 @@ async function fetchProfile(sym: string, token: string): Promise<Partial<OutMetr
     exchange: p.exchange ?? null,
     country: p.country ?? null,
     currency: p.currency ?? null,
+    logo: typeof p.logo === "string" ? p.logo : null,
+    industry: typeof p.finnhubIndustry === "string" ? p.finnhubIndustry : null,
     marketCapM: normalizeCapToMillions(
       typeof p.marketCapitalization === "number" ? p.marketCapitalization : null
     ),
@@ -74,6 +81,12 @@ async function fetchRatios(sym: string, token: string): Promise<Partial<OutMetri
     pe: m.peBasicExclExtraTTM ?? m.peExclExtraTTM ?? m.peTTM ?? null,
     ps: m.priceToSalesTTM ?? m.psTTM ?? null,
     pb: m.priceToBookMRQ ?? m.priceToBookAnnual ?? null,
+    beta: typeof m.betaTTM === "number"
+      ? m.betaTTM
+      : (typeof m.beta === "number" ? m.beta : null),
+    dividendYield: typeof m.dividendYieldIndicatedAnnual === "number"
+      ? m.dividendYieldIndicatedAnnual
+      : (typeof m.dividendYieldTTM === "number" ? m.dividendYieldTTM : null),
   };
   return out;
 }
@@ -81,6 +94,9 @@ async function fetchRatios(sym: string, token: string): Promise<Partial<OutMetri
 export default async function handler(req: any, res: any) {
   try {
     const q = new URL(req.url, "http://localhost").searchParams;
+
+    // режим: lite=1 -> только профиль; иначе full (профиль + мульты)
+    const lite = ["1", "true", "yes"].includes((q.get("lite") || "").trim().toLowerCase());
 
     // GET ?symbols=AAA,BBB или POST { symbols: [] }
     let symbols: string[] = [];
@@ -135,14 +151,17 @@ export default async function handler(req: any, res: any) {
           const my = idx++;
           const sym = toFetch[my];
 
-          // сначала профиль (name + cap), затем мультипликаторы
+          // профиль обязателен
           const prof = await fetchProfile(sym, token);
           if (prof === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
 
-          const ratios = await fetchRatios(sym, token);
-          if (ratios === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
+          let merged: OutMetrics = { ...(prof ?? {}) };
 
-          const merged: OutMetrics = { ...(prof ?? {}), ...(ratios ?? {}) };
+          if (!lite) {
+            const ratios = await fetchRatios(sym, token);
+            if (ratios === null && Date.now() < GLOBAL_BACKOFF_UNTIL) { hit429 = true; break; }
+            merged = { ...merged, ...(ratios ?? {}) };
+          }
 
           metrics[sym] = Object.keys(merged).length ? merged : null;
           CACHE.set(sym, { m: metrics[sym], ts: Date.now() });
@@ -169,7 +188,12 @@ export default async function handler(req: any, res: any) {
     }
 
     res.statusCode = 200;
-    res.end(JSON.stringify({ metrics, serverTs: Date.now(), backoffUntil: GLOBAL_BACKOFF_UNTIL || undefined }));
+    res.end(JSON.stringify({
+      metrics,
+      mode: lite ? "lite" : "full",
+      serverTs: Date.now(),
+      backoffUntil: GLOBAL_BACKOFF_UNTIL || undefined
+    }));
   } catch (e: any) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
