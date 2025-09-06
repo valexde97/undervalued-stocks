@@ -28,6 +28,13 @@ const initialState: StocksState = {
 // ---------- helpers ----------
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
 
+function normalizeCapToMillions(v?: number | null): number | null {
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
+  let m = v * 1000; // предполагаем, что исходно в млрд
+  while (m > 5_000_000) m = m / 1000; // защита от «космоса»
+  return m;
+}
+
 function saneText(v?: string | null, ticker?: string | null) {
   if (!v) return null;
   const t = v.trim();
@@ -150,7 +157,14 @@ export const fetchQuotesBatch = createAsyncThunk<void, { tickers: string[] }>(
 );
 
 // ---------- Batch metrics ----------
-type Metrics = { marketCap?: number | null; pe?: number | null; ps?: number | null; pb?: number | null };
+type Metrics = {
+  marketCapM?: number | null;   // предпочтительно (млн USD)
+  marketCap?: number | null;    // legacy: в млрд (если прилетит старый формат)
+  pe?: number | null;
+  ps?: number | null;
+  pb?: number | null;
+  name?: string | null;
+};
 
 export const fetchMetricsBatch = createAsyncThunk<void, { tickers: string[] }>(
   "stocks/fetchMetricsBatch",
@@ -159,33 +173,46 @@ export const fetchMetricsBatch = createAsyncThunk<void, { tickers: string[] }>(
     if (unique.length === 0) return;
 
     const qs = encodeURIComponent(unique.join(","));
-    const data = await fetchJSON<{ metrics: Record<string, Metrics> }>(`/api/fh/metrics-batch?symbols=${qs}`);
+    const data = await fetchJSON<{ metrics: Record<string, Metrics | null> }>(`/api/fh/metrics-batch?symbols=${qs}`);
     const map = data?.metrics ?? {};
 
     for (const [symbol, m] of Object.entries(map)) {
-      const rawCap = m?.marketCap ?? null; // Finnhub B
-      const marketCap = typeof rawCap === "number" ? rawCap * 1000 : null; // -> M для карточки
+      if (!symbol || !m) continue;
 
+      // market cap: prefer marketCapM (уже в млн), иначе legacy marketCap (в млрд) -> млн
+      const capM =
+        typeof m.marketCapM === "number"
+          ? m.marketCapM
+          : typeof m.marketCap === "number"
+          ? normalizeCapToMillions(m.marketCap)
+          : null;
+
+      // категория по капе (условная шкала)
       let category: Stock["category"] | undefined;
-      if (typeof marketCap === "number") {
-        if (marketCap >= 10000) category = "large";
-        else if (marketCap >= 2000) category = "mid";
+      if (typeof capM === "number") {
+        if (capM >= 10000) category = "large";
+        else if (capM >= 2000) category = "mid";
         else category = "small";
       }
 
-      dispatch(
-        mergeStockPatch({
-          ticker: symbol,
-          marketCap,
-          pe: m?.pe ?? null,
-          ps: m?.ps ?? null,
-          pb: m?.pb ?? null,
-          ...(category ? { category } : {}),
-        })
-      );
+      // мержим всё полезное
+      const patch: any = {
+        ticker: symbol,
+        marketCap: capM,
+        pe: m.pe ?? null,
+        ps: m.ps ?? null,
+        pb: m.pb ?? null,
+      };
+      if (typeof m.name === "string" && m.name.trim()) {
+        patch.name = m.name.trim();
+      }
+      if (category) patch.category = category;
+
+      dispatch(mergeStockPatch(patch));
     }
   }
 );
+
 
 // ---------- Finviz page fetch ----------
 export const fetchFinvizPage = createAsyncThunk<
