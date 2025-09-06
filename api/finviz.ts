@@ -1,3 +1,4 @@
+// /api/finviz.ts
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import * as cheerio from "cheerio";
 
@@ -16,22 +17,48 @@ const HEADERS = {
 };
 
 const TICKER_OK = /^[A-Z][A-Z0-9.-]{0,10}$/;
-const DEFAULT_F = "sh_price_u20,fa_pe_u15,fa_ps_u1"; // биржу не задаём -> все биржи
+const DEFAULT_F = "sh_price_u20,fa_pe_u15,fa_ps_u1"; // как в ссылке
+const DEFAULT_ORDER = "pe"; // сортировка по PE (PIN-I по твоей терминологии)
+const DEFAULT_FT = "2";     // ft=2 как в твоей ссылке
 
 function normalizeFilters(raw: string) {
   const parts = raw.split(",").map(s => s.trim()).filter(Boolean);
   const exchCount = parts.filter(p => p.startsWith("exch_")).length;
-  // если пытались указать несколько бирж — считаем это "все биржи"
   const cleaned = exchCount > 1 ? parts.filter(p => !p.startsWith("exch_")) : parts;
-  // поддержка псевдо-алиаса exch_all -> "все биржи"
   return cleaned.filter(p => p !== "exch_all").join(",");
 }
 
-function buildUrl(page: number, f?: string) {
+function sanitizeOrder(o?: string | null) {
+  // Разрешаем значения вида: pe, -pe, ps, -ps, ticker, -ticker, price, -price и т.п.
+  // Простая защита: только буквы/дефис.
+  if (!o) return DEFAULT_ORDER;
+  const v = String(o).trim();
+  if (!/^[-]?[a-z]+$/i.test(v)) return DEFAULT_ORDER;
+  return v;
+}
+
+function sanitizeFt(ft?: string | null) {
+  // ft обычно 1/2/4 — оставим только цифры
+  if (!ft) return DEFAULT_FT;
+  const v = String(ft).trim();
+  if (!/^\d+$/.test(v)) return DEFAULT_FT;
+  return v;
+}
+
+function buildUrl(page: number, f?: string, o?: string, ft?: string) {
   const view = "111";
   const filters = normalizeFilters(f ?? DEFAULT_F);
-  const start = 1 + page * PAGE_SIZE;
-  return `${BASE}?v=${encodeURIComponent(view)}&f=${encodeURIComponent(filters)}&r=${start}`;
+  const order = sanitizeOrder(o);
+  const ftVal = sanitizeFt(ft);
+  const start = 1 + page * PAGE_SIZE; // 1,21,41,...
+
+  const qs = new URLSearchParams();
+  qs.set("v", view);
+  qs.set("f", filters);
+  qs.set("ft", ftVal);
+  qs.set("o", order);
+  qs.set("r", String(start));
+  return `${BASE}?${qs.toString()}`;
 }
 
 function sanitizeCompany(s?: string | null) {
@@ -65,7 +92,9 @@ function pickScreenerTable($: cheerio.CheerioAPI) {
 function parseTickersAndNames(html: string) {
   const $ = cheerio.load(html);
   const $table = pickScreenerTable($);
-  if (!$table) return { items: [] as Array<{ ticker: string; company: string | null }>, total: parseTotalText($.text()) };
+  if (!$table) {
+    return { items: [] as Array<{ ticker: string; company: string | null }>, total: parseTotalText($.text()) };
+  }
 
   const $rows = ($table.find("tbody tr").length ? $table.find("tbody tr") : $table.find("tr").slice(1))
     .filter((_, tr) => $(tr).find('a[href*="quote.ashx?t="]').length > 0);
@@ -91,7 +120,7 @@ function parseTickersAndNames(html: string) {
     try {
       const u = new URL(href, "https://finviz.com/");
       ticker = (u.searchParams.get("t") || "").toUpperCase().trim();
-    } catch { /* empty */ }
+    } catch { /* noop */ }
     if (!ticker) ticker = ($link.text() || "").toUpperCase().trim();
     if (!ticker || !TICKER_OK.test(ticker)) return;
     if (seen.has(ticker)) return;
@@ -112,9 +141,17 @@ function parseTickersAndNames(html: string) {
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const page = Math.max(0, parseInt(String((req.query as any).page ?? "0"), 10) || 0);
-const rawF = typeof (req.query as any).f === "string" ? ((req.query as any).f as string) : undefined;
-const fUsed = normalizeFilters(rawF ?? DEFAULT_F);
-    const html = await fetch(buildUrl(page, fUsed), { headers: HEADERS }).then((r) => r.text());
+
+    const rawF = typeof (req.query as any).f === "string" ? ((req.query as any).f as string) : undefined;
+    const rawO = typeof (req.query as any).o === "string" ? ((req.query as any).o as string) : undefined;
+    const rawFt = typeof (req.query as any).ft === "string" ? ((req.query as any).ft as string) : undefined;
+
+    const fUsed = normalizeFilters(rawF ?? DEFAULT_F);
+    const oUsed = sanitizeOrder(rawO ?? DEFAULT_ORDER);
+    const ftUsed = sanitizeFt(rawFt ?? DEFAULT_FT);
+
+    const url = buildUrl(page, fUsed, oUsed, ftUsed);
+    const html = await fetch(url, { headers: HEADERS }).then((r) => r.text());
     const { items, total } = parseTickersAndNames(html);
 
     // hasMore: 20→true; иначе — если есть total, считаем точно; если нет — true пока страница не пустая
@@ -126,12 +163,20 @@ const fUsed = normalizeFilters(rawF ?? DEFAULT_F);
 
     res.setHeader("X-Finviz-PageSize", String(PAGE_SIZE));
     res.setHeader("X-Finviz-HasMore", hasMore ? "1" : "0");
-res.setHeader("X-Finviz-EffectiveF", fUsed);
+    res.setHeader("X-Finviz-EffectiveF", fUsed);
+    res.setHeader("X-Finviz-Order", oUsed);
+    res.setHeader("X-Finviz-FT", ftUsed);
     if (typeof total === "number") res.setHeader("X-Finviz-Total", String(total));
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=60");
     res.setHeader("Content-Type", "application/json");
 
-    res.status(200).json({ page, pageSize: PAGE_SIZE, count: items.length, total: typeof total === "number" ? total : undefined, items });
+    res.status(200).json({
+      page,
+      pageSize: PAGE_SIZE,
+      count: items.length,
+      total: typeof total === "number" ? total : undefined,
+      items,
+    });
   } catch (e: any) {
     res.status(500).json({ page: 0, count: 0, items: [], error: String(e?.message || e) });
   }
