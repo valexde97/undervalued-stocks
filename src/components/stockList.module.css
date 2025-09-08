@@ -1,20 +1,47 @@
-.grid {
-display: grid;
-grid-template-columns: repeat(1, minmax(0, 1fr));
-gap: 12px;
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 18px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.25);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
 }
 
+.header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.headerLeft { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.logo { width: 24px; height: 24px; border-radius: 6px; object-fit: cover; box-shadow: 0 1px 2px rgba(0,0,0,.15); }
+.title { margin: 0; font-size: 18px; font-weight: 700; color: var(--text-light); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-@media (min-width: 640px) { /* tablets */
-.grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
-@media (min-width: 1024px) { /* desktops */
-.grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
+/* star button */
+.fav { border: none; background: transparent; cursor: pointer; font-size: 18px; line-height: 1; opacity: .75; }
+.fav:hover { opacity: 1; transform: scale(1.05); }
+.activeFav { opacity: 1; }
 
+.inlineRow { display: flex; align-items: center; gap: 8px; opacity: .9; flex-wrap: wrap; }
+.kv { display: inline-flex; gap: 6px; align-items: center; }
+.k { opacity: .75; }
+.v { font-weight: 600; }
+.dot { opacity: .35; }
 
-.empty {
-opacity: .75;
-padding: 16px;
-text-align: center;
-}
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 9999px; font-size: 12px; line-height: 1.2; color: var(--text-light); }
+.badgeDot { width: 6px; height: 6px; border-radius: 9999px; background: var(--accent); display: inline-block; }
+
+/* price & delta */
+.priceRow { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 2px; }
+.priceBlock { display: inline-flex; align-items: baseline; gap: 6px; }
+.priceLabel { opacity: .8; }
+.priceValue { font-size: 20px; font-weight: 800; }
+
+.delta { font-weight: 700; }
+.up { color: #22c55e; }
+.down { color: #ef4444; }
+
+.subStats { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; opacity: .85; }
+.range > span, .xtra > span { font-weight: 600; opacity: .95; }
+
+.ctaWrap { margin-top: 6px; }
+.viewButton { width: 100%; padding: 10px 14px; border-radius: 12px; background: var(--primary); color: white; border: 1px solid var(--border); font-weight: 700; cursor: pointer; }
+.viewButton:hover { filter: brightness(1.05); }

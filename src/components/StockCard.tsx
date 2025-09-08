@@ -1,4 +1,3 @@
-// src/components/StockCard.tsx
 import { Link } from "react-router-dom";
 import { motion, useAnimation, useInView } from "framer-motion";
 import React, { useEffect, useMemo, useRef } from "react";
@@ -19,9 +18,6 @@ function prettyCategory(cat?: string | null) {
   if (!cat) return "—";
   const s = String(cat).toLowerCase();
   return s.charAt(0).toUpperCase() + s.slice(1);
-}
-function fmt2(n?: number | null) {
-  return typeof n === "number" && Number.isFinite(n) ? Number(n).toFixed(2) : "—";
 }
 
 const StockCardBase: React.FC<Props> = ({ stock }) => {
@@ -66,15 +62,6 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
 
   const dayRangeText = day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
   const hasPrice = typeof day.price === "number" && Number.isFinite(day.price) && day.price > 0;
-
-  // метрики: предпочитаем Finnhub, иначе finviz snapshot
-  const peVal = stock.pe ?? (stock as any).peSnapshot ?? null;
-  const psVal = stock.ps ?? (stock as any).psSnapshot ?? null;
-  const pbVal = stock.pb ?? (stock as any).pbSnapshot ?? null;
-
-  const peIsSnapshot = stock.pe == null && (stock as any).peSnapshot != null;
-  const psIsSnapshot = stock.ps == null && (stock as any).psSnapshot != null;
-  const pbIsSnapshot = stock.pb == null && (stock as any).pbSnapshot != null;
 
   return (
     <motion.div
@@ -149,21 +136,6 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
         </div>
       </div>
 
-      <div className={styles.metrics}>
-        <div>
-          P/E: {fmt2(peVal)}
-          {peIsSnapshot ? " (finviz)" : ""}
-        </div>
-        <div>
-          P/S: {fmt2(psVal)}
-          {psIsSnapshot ? " (finviz)" : ""}
-        </div>
-        <div>
-          P/B: {fmt2(pbVal)}
-          {pbIsSnapshot ? " (finviz)" : ""}
-        </div>
-      </div>
-
       <div className={styles.ctaWrap}>
         <Link to={`/stocks/${stock.ticker}`}>
           <motion.button className={styles.viewButton} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
@@ -175,7 +147,7 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
   );
 };
 
-// «честное» сравнение пропсов (чтобы карточка обновлялась на метриках)
+// «честное» сравнение пропсов (без фундаменталки — карточка не будет перерендериваться из-за P/E/P/S/P/B)
 function eq(a: Props, b: Props) {
   const sa = a.stock as any;
   const sb = b.stock as any;
@@ -187,9 +159,6 @@ function eq(a: Props, b: Props) {
     sa.high === sb.high &&
     sa.low === sb.low &&
     sa.prevClose === sb.prevClose &&
-    a.stock.pe === b.stock.pe &&
-    a.stock.ps === b.stock.ps &&
-    a.stock.pb === b.stock.pb &&
     a.stock.marketCap === b.stock.marketCap &&
     a.stock.category === b.stock.category &&
     (a.stock.industry ?? null) === (b.stock.industry ?? null) &&

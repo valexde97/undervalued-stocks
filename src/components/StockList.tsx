@@ -16,9 +16,10 @@ export default function StockList({ stocks }: Props) {
 
   return (
     <div className={styles.grid}>
-     {data.map((s, i) => (
-   <StockCard key={`${s.ticker}-${i}`} stock={s} />
-    ))}
+{data.map((s) => (
+  <StockCard key={s.ticker} stock={s} />
+))}
+
     </div>
   );
 }

@@ -3,7 +3,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 type Quote = { c?: number; pc?: number; t?: number };
 type Item = { symbol: string; quote: Quote | null; cached?: boolean };
-type Batch = { items: Item[]; serverTs?: number; backoffUntil?: number };
+type Resp = {
+  quotes?: Record<string, Quote | null>;
+  items?: Item[];
+  serverTs?: number;
+  backoffUntil?: number;
+};
 
 const SYMBOLS = [
   "BINANCE:BTCUSDT",
@@ -19,7 +24,7 @@ function short(sym: string) {
   return m ? m[1] : sym;
 }
 
-async function fetchBatch(symbols: string[]): Promise<Batch> {
+async function fetchBatch(symbols: string[]): Promise<Resp> {
   const u = new URL("/api/fh/quotes-batch", window.location.origin);
   u.searchParams.set("symbols", symbols.join(","));
   const r = await fetch(u.toString(), { cache: "no-store" });
@@ -36,20 +41,28 @@ export default function CryptoMarquee() {
     if (pausedUntil && Date.now() < pausedUntil) return;
     try {
       const res = await fetchBatch(SYMBOLS);
-      setData(res.items || []);
+
+      // Нормализуем ответ: и quotes-мапа, и items-массив поддерживаются
+      const next: Item[] = SYMBOLS.map((sym) => {
+        const fromItems = res.items?.find((i) => i.symbol === sym) || null;
+        const fromMap = res.quotes ? { symbol: sym, quote: res.quotes[sym] ?? null } : null;
+        return fromItems || (fromMap as Item) || { symbol: sym, quote: null };
+      });
+
+      setData(next);
       if (res.backoffUntil && res.backoffUntil > Date.now()) {
         setPausedUntil(res.backoffUntil);
       } else {
         setPausedUntil(null);
       }
     } catch {
-      /* try later */
+      /* попробуем позже */
     }
   };
 
   useEffect(() => {
-    void poll(); // first request immediately
-const id = window.setInterval(poll, 50_000);
+    void poll(); // первый запрос сразу
+    const id = window.setInterval(poll, 45_000); // обновляем каждые ~45с
     tickRef.current = id;
     return () => {
       if (tickRef.current != null) window.clearInterval(tickRef.current);

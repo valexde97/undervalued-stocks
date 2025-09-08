@@ -1,10 +1,10 @@
+// src/pages/Home.tsx
 import { useEffect, useMemo, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
-import StockList from "../components/StockList";
 import { goToPage } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
 
@@ -13,6 +13,7 @@ import NewsMini from "../components/NewsMini";
 import TopGainers from "../components/TopGainers";
 import MarketClosedCard from "../components/MarketClosedCard";
 import { getMarketSession } from "../utils/marketSession";
+import StockCard from "../components/StockCard";
 
 import styles from "./home.module.css";
 
@@ -48,14 +49,10 @@ export const Home = () => {
   const mkt = getMarketSession();
 
   const onPrev = () => {
-    if (page1 > 1) {
-      navigate(`/${page1 - 1}`);
-    }
+    if (page1 > 1) navigate(`/${page1 - 1}`);
   };
   const onNext = () => {
-    if (hasMore) {
-      navigate(`/${page1 + 1}`);
-    }
+    if (hasMore) navigate(`/${page1 + 1}`);
   };
 
   return (
@@ -80,14 +77,20 @@ export const Home = () => {
 
         {status === "loading" && items.length === 0 && (
           <div className={styles.skeletonWrap}>
-            <Skeleton count={6} height={140} style={{ marginBottom: 12 }} />
+            {/* 6 скелетонов, визуально близко к карточкам */}
+            <div className={styles.cardsGrid}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i}>
+                  <Skeleton height={140} style={{ marginBottom: 12 }} />
+                </div>
+              ))}
+            </div>
           </div>
         )}
 
         {status === "failed" && (
           <div className={styles.error}>
-            Fetch failed.{" "}
-            <button onClick={() => dispatch(goToPage({ page1 }))}>Retry</button>
+            Fetch failed. <button onClick={() => dispatch(goToPage({ page1 }))}>Retry</button>
           </div>
         )}
 
@@ -95,27 +98,22 @@ export const Home = () => {
           {/* --- Якорь начала карточек (учитывает фиксированный Header) --- */}
           <div ref={cardsTopRef} style={{ scrollMarginTop: 80 }} />
 
-          <StockList stocks={visibleStocks} />
+          {/* Сетка карточек: 1 / 2 / 3 колонки */}
+          <div className={styles.cardsGrid}>
+            {visibleStocks.map((s) => (
+              <StockCard key={s.ticker} stock={s} />
+            ))}
+          </div>
 
           {/* Пэйджер */}
-          <div className={styles.moreRow} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div className={styles.moreRow}>
             {page1 > 1 && (
-              <button
-                className={styles.moreBtn}
-                onClick={onPrev}
-                disabled={status === "loading"}
-              >
+              <button className={styles.moreBtn} onClick={onPrev} disabled={status === "loading"}>
                 Prev 20
               </button>
             )}
-
-            <div style={{ alignSelf: "center", opacity: 0.8 }}>Page {page1}</div>
-
-            <button
-              className={styles.moreBtn}
-              onClick={onNext}
-              disabled={!hasMore || status === "loading"}
-            >
+            <div className={styles.pageLabel}>Page {page1}</div>
+            <button className={styles.moreBtn} onClick={onNext} disabled={!hasMore || status === "loading"}>
               {status === "loading" ? "Loading…" : "Next 20"}
             </button>
           </div>
@@ -124,3 +122,5 @@ export const Home = () => {
     </motion.div>
   );
 };
+
+export default Home;

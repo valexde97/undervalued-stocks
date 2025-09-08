@@ -1,3 +1,4 @@
+/* src/pages/home.module.css */
 .page {
   padding: 8px 12px 24px;
 }
@@ -68,8 +69,7 @@
     column-gap: 24px;
   }
 
-  /* Правую колонку «приклеиваем», но ниже всех z-слоёв,
-     чтобы тени не перекрывали левую карточку и не было «наезда» */
+  /* Правую колонку «приклеиваем», но ниже всех z-слоёв */
   .sideCol {
     position: sticky;
     top: 12px;
@@ -82,11 +82,37 @@
 
 .listArea { margin-top: 6px; }
 
-.moreRow {
+/* ====== Сетка карточек ====== */
+.cardsGrid {
   display: grid;
-  place-items: center;
+  gap: 14px;
+  grid-template-columns: 1fr; /* mobile: 1 */
+}
+
+/* tablet: 2 колонки */
+@media (min-width: 768px) {
+  .cardsGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* desktop: 3 колонки стабильно */
+@media (min-width: 1024px) {
+  .cardsGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* ====== Пэйджер ====== */
+.moreRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
   margin-top: 16px;
 }
+
+.pageLabel { opacity: 0.8; }
 
 .moreBtn {
   padding: 10px 16px;
@@ -95,6 +121,11 @@
   background: var(--cta-bg);
   color: var(--cta-text);
   font-weight: 700;
+  cursor: pointer;
+}
+.moreBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .skeletonWrap { margin: 8px 0; }
