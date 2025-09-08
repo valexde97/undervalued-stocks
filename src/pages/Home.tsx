@@ -5,7 +5,7 @@ import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
 import { useAppDispatch, useAppSelector } from "../store/hooks";
-import { goToPage } from "../store/stocksSlice";
+import { goToPage, hydratePageProgressively } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
 
 import CryptoMarquee from "../components/CryptoMarquee";
@@ -23,8 +23,7 @@ export const Home = () => {
   const params = useParams<{ page?: string }>();
 
   const page1 = Math.max(1, Number(params.page ?? "1") || 1);
-
-  const { items, status, hasMore } = useAppSelector((s) => s.stocks);
+  const { items, status, hasMore, pageEpoch } = useAppSelector((s) => s.stocks);
 
   // --- Якорь начала карточек ---
   const cardsTopRef = useRef<HTMLDivElement | null>(null);
@@ -44,6 +43,22 @@ export const Home = () => {
     }
     if (status === "succeeded") prevPageRef.current = page1;
   }, [page1, status]);
+
+  // === ВАЖНО: триггерим прогрессивную гидрацию текущей страницы ===
+  useEffect(() => {
+    if (status === "succeeded" && items.length > 0) {
+      // thunk сам прервётся, если pageEpoch изменится (страница переключится)
+      void dispatch(hydratePageProgressively());
+    }
+  }, [dispatch, status, pageEpoch, items.length]);
+
+  useEffect(() => {
+  (async () => {
+    await dispatch(goToPage({ page1 }));
+    dispatch(hydratePageProgressively());
+  })();
+}, [dispatch, page1]);
+
 
   const visibleStocks = useMemo<Stock[]>(() => items, [items]);
   const mkt = getMarketSession();

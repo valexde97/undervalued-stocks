@@ -4,13 +4,15 @@ export type MarketCapBand = "small" | "mid" | "large";
 export type Stock = {
   ticker: string;
   name: string;
-  category: MarketCapBand;
 
-  // Snapshot from Finviz (for instant card render)
+  // Категория рассчитывается по marketCap (в МИЛЛИОНАХ USD) — может быть неизвестна до снапшота
+  category: MarketCapBand | null;
+
+  // Snapshot (цена/динамика)
   price: number | null;
   changePct?: number | null;
 
-  // Basic fundamentals (can be Finnhub later)
+  // Базовые метрики (детали; на карточке не обязательны)
   pe?: number | null;
   pb?: number | null;
   ps?: number | null;
@@ -19,8 +21,10 @@ export type Stock = {
   grossMargin?: number | null;
   netMargin?: number | null;
 
-  marketCap?: number | null;     // numeric in millions (client computed)
-  marketCapText?: string | null; // raw Finviz text ("12.3B", "340M")
+  // Всегда в МИЛЛИОНАХ USD
+  marketCap?: number | null;     // numeric, млн USD
+  marketCapText?: string | null; // запасной текст (если нужен)
+
   sector?: string | null;
   industry?: string | null;
   country?: string | null;
@@ -28,12 +32,12 @@ export type Stock = {
   beta?: number | null;
   dividendYield?: number | null; // %
 
-  // Snapshots taken directly from Finviz
+  // Снимки Finviz (если используете)
   peSnapshot?: number | null;
   psSnapshot?: number | null;
   pbSnapshot?: number | null;
 
-  // Optional details (Finnhub)
+  // Детали
   listedAt?: Date;
 
   potentialScore?: number | null;

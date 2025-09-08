@@ -1,41 +1,32 @@
 // src/store/stocksSlice.ts
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import type { Stock } from "../types/stock";
-import { loadFinviz, resetFinvizEffectiveFilter } from "../api/loadBatch";
+import { loadFinviz } from "../api/loadBatch";
 import { fetchJSON } from "../utils/http";
 
-/**
- * STOCKS SLICE — Finviz-first listing
- * - Cards/listing: ONLY quotes + lite profile (no P/E, P/S, P/B fetch here)
- * - Full fundamentals (P/E/P/S/P/B/etc.) are fetched ONLY for a single ticker on View Details
- */
-
-// ---------- Finnhub types ----------
+// Finnhub quote (локально)
 type Quote = { c?: number; o?: number; h?: number; l?: number; pc?: number; dp?: number; d?: number };
 
-// LITE metrics (profile2)
-type LiteMetrics = {
-  marketCapM?: number | null;
+// Снапшот из /api/fh/snapshot-batch
+type SnapshotItem = {
+  ticker: string;
   name?: string | null;
   industry?: string | null;
-  exchange?: string | null;
   country?: string | null;
-  currency?: string | null;
+  marketCapM?: number | null;
   logo?: string | null;
+
+  price?: number | null;
+  changePct?: number | null;
+  open?: number | null;
+  high?: number | null;
+  low?: number | null;
+  prevClose?: number | null;
 };
 
-// FULL metrics (metric=all) — used ONLY on details
-type FullMetrics = LiteMetrics & {
-  pe?: number | null;
-  ps?: number | null;
-  pb?: number | null;
-  beta?: number | null;
-  dividendYield?: number | null;
-  marketCap?: number | null;   // legacy (in billions)
-  marketCapM?: number | null;  // preferred (in millions)
-};
+type SnapshotResponse = { items: SnapshotItem[]; serverTs?: number; backoffUntil?: number };
 
-// ---------- State ----------
+// ---------- state ----------
 export type StocksState = {
   items: Stock[];
   nextCache: Stock[] | null;
@@ -43,6 +34,7 @@ export type StocksState = {
   error?: string;
   currentPage: number; // 0-based
   hasMore: boolean;
+  pageEpoch: number; // изменяем при каждой смене страницы, чтобы отменять «старую» гидрацию
 };
 
 const initialState: StocksState = {
@@ -51,6 +43,7 @@ const initialState: StocksState = {
   status: "idle",
   currentPage: -1,
   hasMore: true,
+  pageEpoch: 0,
 };
 
 // ---------- helpers ----------
@@ -58,14 +51,16 @@ export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>
 
 function capMillions(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  return Math.min(v, 5_000_000); // safety clamp: 5T
+  return Math.min(v, 5_000_000); // защита: до 5 трлн
 }
-function billionsToMillions(v?: number | null): number | null {
-  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  let m = v * 1000;
-  while (m > 5_000_000) m /= 1000;
-  return m;
+
+function categoryByCap(capM?: number | null): Stock["category"] | null {
+  if (typeof capM !== "number") return null;
+  if (capM >= 10000) return "large";
+  if (capM >= 2000) return "mid";
+  return "small";
 }
+
 function saneText(v?: string | null, ticker?: string | null) {
   if (!v) return null;
   const t = v.trim();
@@ -78,9 +73,22 @@ function looksLikeNoise(s?: string | null) {
   const x = (s || "").trim().toLowerCase();
   if (!x) return false;
   return [
-    "export", "overview", "valuation", "financial", "ownership", "performance", "technical",
-    "order by", "any", "index", "signal", "dividend yield", "average volume", "target price",
-    "ipo date", "filters:"
+    "export",
+    "overview",
+    "valuation",
+    "financial",
+    "ownership",
+    "performance",
+    "technical",
+    "order by",
+    "any",
+    "index",
+    "signal",
+    "dividend yield",
+    "average volume",
+    "target price",
+    "ipo date",
+    "filters:",
   ].some((w) => x.includes(w));
 }
 function cleanField(v?: string | null, ticker?: string | null) {
@@ -101,11 +109,10 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
     out.push({
       ticker,
       name,
-      category: "small",
+      category: null, // << не хардкодим; появится после снапшота по marketCap
       price: null,
       changePct: null,
 
-      // fundamentals kept in type but not populated on listing
       pe: null,
       ps: null,
       pb: null,
@@ -114,7 +121,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       grossMargin: null,
       netMargin: null,
 
-      marketCap: null,
+      marketCap: null,       // всегда в МЛН USD
       marketCapText: null,
 
       sector: null,
@@ -138,185 +145,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
   return out;
 }
 
-// Merge quotes + lite profile for listing
-function enrichWithQuoteAndLite(
-  base: Stock[],
-  quotes: Record<string, Quote | null>,
-  lite: Record<string, LiteMetrics | null>
-): Stock[] {
-  return base.map((s) => {
-    const q = quotes[s.ticker] ?? null;
-    const m = lite[s.ticker] ?? null;
-
-    // quotes
-    const price = (q?.c != null && Number.isFinite(q.c) && q.c > 0) ? q.c : null;
-    const prevClose = (q?.pc != null && Number.isFinite(q.pc) && q.pc > 0) ? q.pc : null;
-    const computedDp =
-      q?.dp != null && Number.isFinite(q.dp)
-        ? q.dp
-        : (price != null && prevClose != null && prevClose !== 0)
-          ? ((price - prevClose) / prevClose) * 100
-          : null;
-
-    // lite metrics
-    const capM = typeof m?.marketCapM === "number" ? capMillions(m!.marketCapM!) : null;
-    let category: Stock["category"] | undefined;
-    if (typeof capM === "number") {
-      if (capM >= 10000) category = "large";
-      else if (capM >= 2000) category = "mid";
-      else category = "small";
-    }
-
-    return {
-      ...s,
-      price,
-      changePct: computedDp ?? s.changePct ?? null,
-      ...(q?.o != null ? { open: q.o } : {}),
-      ...(q?.h != null ? { high: q.h } : {}),
-      ...(q?.l != null ? { low: q.l } : {}),
-      ...(prevClose != null ? { prevClose } : {}),
-
-      ...(m?.name ? { name: m.name } : {}),
-      ...(m?.industry ? { industry: m.industry } : {}),
-      ...(m?.country ? { country: m.country } : {}),
-      ...(typeof capM === "number" ? { marketCap: capM } : {}),
-      ...(category ? { category } : {}),
-      ...(m?.logo ? { logo: m.logo } : {}),
-    } as any;
-  });
-}
-
-// ---------- Batches ----------
-export const fetchQuotesBatch = createAsyncThunk<void, { tickers: string[] }>(
-  "stocks/fetchQuotesBatch",
-  async ({ tickers }, { dispatch }) => {
-    const unique = Array.from(new Set(tickers)).filter(Boolean);
-    if (unique.length === 0) return;
-
-    const qs = encodeURIComponent(unique.join(","));
-    const data = await fetchJSON<{ quotes: Record<string, Quote | null> }>(
-      `/api/fh/quotes-batch?symbols=${qs}`,
-      { noStore: true, timeoutMs: 15000 }
-    );
-    const quotes = data?.quotes ?? {};
-
-    for (const [symbol, q] of Object.entries(quotes)) {
-      if (!symbol) continue;
-      const computedDp =
-        q?.dp != null && Number.isFinite(q.dp)
-          ? q.dp
-          : q?.c != null && q?.pc != null && q.pc !== 0
-            ? ((q.c - q.pc) / q.pc) * 100
-            : null;
-
-      dispatch(
-        mergeStockPatch({
-          ticker: symbol,
-          price: q?.c ?? null,
-          ...(q?.o != null ? { open: q.o } : {}),
-          ...(q?.h != null ? { high: q.h } : {}),
-          ...(q?.l != null ? { low: q.l } : {}),
-          ...(q?.pc != null ? { prevClose: q.pc } : {}),
-          ...(computedDp != null ? { changePct: computedDp } : {}),
-        })
-      );
-    }
-  }
-);
-
-export const fetchMetricsLiteBatch = createAsyncThunk<void, { tickers: string[] }>(
-  "stocks/fetchMetricsLiteBatch",
-  async ({ tickers }, { dispatch }) => {
-    const unique = Array.from(new Set(tickers)).filter(Boolean);
-    if (unique.length === 0) return;
-
-    const qs = encodeURIComponent(unique.join(","));
-    const data = await fetchJSON<{ metrics: Record<string, LiteMetrics | null> }>(
-      `/api/fh/metrics-batch?lite=1&symbols=${qs}`,
-      { noStore: true, timeoutMs: 20000 }
-    );
-    const map = data?.metrics ?? {};
-
-    for (const [symbol, m] of Object.entries(map)) {
-      if (!symbol || !m) continue;
-
-      const capM = capMillions(m.marketCapM ?? null);
-
-      let category: Stock["category"] | undefined;
-      if (typeof capM === "number") {
-        if (capM >= 10000) category = "large";
-        else if (capM >= 2000) category = "mid";
-        else category = "small";
-      }
-
-      const patch: any = {
-        ticker: symbol,
-        marketCap: capM,
-        ...(typeof m.name === "string" && m.name.trim() ? { name: m.name.trim() } : {}),
-        ...(typeof m.industry === "string" ? { industry: m.industry } : {}),
-        ...(typeof m.country === "string" ? { country: m.country } : {}),
-      };
-      if (category) patch.category = category;
-      if (m.logo) patch.logo = m.logo;
-
-      dispatch(mergeStockPatch(patch));
-    }
-  }
-);
-
-// NOTE: Full fundamentals are fetched ONLY for a single ticker (details)
-export const fetchMetricsFullBatch = createAsyncThunk<void, { tickers: string[] }>(
-  "stocks/fetchMetricsFullBatch",
-  async ({ tickers }, { dispatch }) => {
-    const unique = Array.from(new Set(tickers)).filter(Boolean);
-    if (unique.length === 0) return;
-
-    const qs = encodeURIComponent(unique.join(","));
-    const data = await fetchJSON<{ metrics: Record<string, FullMetrics | null> }>(
-      `/api/fh/metrics-batch?symbols=${qs}`,
-      { noStore: true, timeoutMs: 20000 }
-    );
-    const map = data?.metrics ?? {};
-
-    for (const [symbol, m] of Object.entries(map)) {
-      if (!symbol || !m) continue;
-
-      const capM =
-        typeof m.marketCapM === "number"
-          ? capMillions(m.marketCapM)
-          : typeof m.marketCap === "number"
-            ? billionsToMillions(m.marketCap)
-            : null;
-
-      let category: Stock["category"] | undefined;
-      if (typeof capM === "number") {
-        if (capM >= 10000) category = "large";
-        else if (capM >= 2000) category = "mid";
-        else category = "small";
-      }
-
-      const patch: any = {
-        ticker: symbol,
-        marketCap: capM,
-        pe: m.pe ?? null,
-        ps: m.ps ?? null,
-        pb: m.pb ?? null,
-        beta: m.beta ?? null,
-        dividendYield: m.dividendYield ?? null,
-      };
-
-      if (typeof m.name === "string" && m.name.trim()) patch.name = m.name.trim();
-      if (typeof m.industry === "string") patch.industry = m.industry;
-      if (typeof m.country === "string") patch.country = m.country;
-      if (m.logo) patch.logo = m.logo;
-      if (category) patch.category = category;
-
-      dispatch(mergeStockPatch(patch));
-    }
-  }
-);
-
-// ---------- Finviz page fetch (raw list) ----------
+// ---------- Finviz page ----------
 export const fetchFinvizPage = createAsyncThunk<
   { page: number; stocks: Stock[]; hasMoreMeta: boolean },
   { page: number }
@@ -326,147 +155,71 @@ export const fetchFinvizPage = createAsyncThunk<
   return { page, stocks, hasMoreMeta: !!meta?.hasMore };
 });
 
-// ---------- Details: prioritize a single ticker ----------
-export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }>(
-  "stocks/prioritizeDetailsTicker",
-  async ({ ticker }, { dispatch }) => {
-    const t = ticker.trim().toUpperCase();
-    if (!t) return;
-    await Promise.allSettled([
-      dispatch(fetchQuotesBatch({ tickers: [t] })),
-      dispatch(fetchMetricsFullBatch({ tickers: [t] })), // ONLY here
-    ]);
+// ---------- Progressive hydration (1-by-1) ----------
+export const hydratePageProgressively = createAsyncThunk<void, void, { state: { stocks: StocksState } }>(
+  "stocks/hydratePageProgressively",
+  async (_: void, { getState, dispatch }) => {
+    const epoch = getState().stocks.pageEpoch;
+    const tickers = getState().stocks.items.map((s) => s.ticker);
+    if (!tickers.length) return;
+
+    const CHUNK = 1;
+
+    for (let i = 0; i < tickers.length; i += CHUNK) {
+      if (getState().stocks.pageEpoch !== epoch) break; // страница переключилась — выходим
+
+      const slice = tickers.slice(i, i + CHUNK);
+      const qs = encodeURIComponent(slice.join(","));
+      try {
+        const resp = await fetchJSON<SnapshotResponse>(`/api/fh/snapshot-batch?symbols=${qs}`, {
+          noStore: true,
+          timeoutMs: 20000,
+        });
+
+        if (getState().stocks.pageEpoch !== epoch) break;
+
+        for (const it of resp.items) {
+          const capM = capMillions(it.marketCapM ?? null);
+          const patch: Partial<Stock> & { ticker: string } = {
+            ticker: it.ticker,
+            price: it.price ?? null,
+            changePct: it.changePct ?? null,
+            ...(it.open != null ? { open: it.open } : {}),
+            ...(it.high != null ? { high: it.high } : {}),
+            ...(it.low != null ? { low: it.low } : {}),
+            ...(it.prevClose != null ? { prevClose: it.prevClose } : {}),
+
+            ...(typeof it.name === "string" && it.name.trim() ? { name: it.name.trim() } : {}),
+            ...(typeof it.industry === "string" ? { industry: it.industry } : {}),
+            ...(typeof it.country === "string" ? { country: it.country } : {}),
+            ...(typeof capM === "number" ? { marketCap: capM } : {}),
+          };
+
+          const cat = categoryByCap(capM);
+          if (cat) (patch as any).category = cat;
+          if (it.logo) (patch as any).logo = it.logo;
+
+          dispatch(mergeStockPatch(patch));
+        }
+      } catch (e: any) {
+        if (e?.status === 429) {
+          await new Promise((r) => setTimeout(r, 1200));
+        }
+      }
+    }
   }
 );
 
-// ---------- Bootstrap (Home may call goToPage) ----------
-export const bootstrapFromFinviz = createAsyncThunk<
-  { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
-  void
->("stocks/bootstrapFromFinviz", async (_arg, { dispatch }) => {
-  resetFinvizEffectiveFilter();
-
-  const { page: p0, stocks: s0, hasMoreMeta: more0 } =
-    await (dispatch as any)(fetchFinvizPage({ page: 0 })).unwrap();
-
-  // Warm up quotes + lite (non-blocking) for first page
-  const tickers0 = s0.map((s: Stock) => s.ticker);
-  if (tickers0.length) {
-    void (dispatch as any)(fetchQuotesBatch({ tickers: tickers0 }));
-    void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers0 }));
-    // IMPORTANT: no full fundamentals fetch here
-  }
-
-  // Prefetch next raw page
-  let nextCache: Stock[] | null = null;
-  if (more0) {
-    try {
-      const { stocks: s1 } = await (dispatch as any)(fetchFinvizPage({ page: 1 })).unwrap();
-      nextCache = s1;
-
-      const tickers1 = s1.map((s: Stock) => s.ticker);
-      if (tickers1.length) {
-        void (dispatch as any)(fetchQuotesBatch({ tickers: tickers1 }));
-        void (dispatch as any)(fetchMetricsLiteBatch({ tickers: tickers1 }));
-      }
-    } catch {
-      nextCache = null;
-    }
-  }
-
-  return { items: s0, nextCache, page: p0, hasMore: more0 || Boolean(nextCache?.length) };
-});
-
-// ---------- NEXT (replace + prefetch) — returns enriched items ----------
-export const loadNextAndReplace = createAsyncThunk<
-  { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
-  void
->("stocks/loadNextAndReplace", async (_: void, { getState, dispatch }) => {
-  const state = getState() as { stocks: StocksState };
-  const curr = state.stocks.currentPage < 0 ? 0 : state.stocks.currentPage;
-  const wantPage = curr + 1;
-
-  let rawNext: Stock[] = state.stocks.nextCache ?? [];
-  let effectivePage = wantPage;
-
-  if (rawNext.length === 0) {
-    const { page, stocks } = await (dispatch as any)(fetchFinvizPage({ page: wantPage })).unwrap();
-    rawNext = stocks;
-    effectivePage = page;
-  }
-  if (rawNext.length === 0) {
-    return { items: state.stocks.items, nextCache: null, page: curr, hasMore: false };
-  }
-
-  // Enrich now with quotes + lite
-  const t0 = rawNext.map((s) => s.ticker);
-  let quotes: Record<string, Quote | null> = {};
-  let lite: Record<string, LiteMetrics | null> = {};
-  if (t0.length) {
-    const qs = encodeURIComponent(t0.join(","));
-    const [qData, mData] = await Promise.all([
-      fetchJSON<{ quotes: Record<string, Quote | null> }>(`/api/fh/quotes-batch?symbols=${qs}`, { noStore: true, timeoutMs: 15000 }),
-      fetchJSON<{ metrics: Record<string, LiteMetrics | null> }>(`/api/fh/metrics-batch?lite=1&symbols=${qs}`, { noStore: true, timeoutMs: 20000 }),
-    ]);
-    quotes = qData?.quotes ?? {};
-    lite = mData?.metrics ?? {};
-  }
-  const enrichedNext = enrichWithQuoteAndLite(rawNext, quotes, lite);
-
-  // Prefetch following raw page
-  let nextCache: Stock[] | null = null;
-  let hasMore = true;
-  try {
-    const { stocks: sNext, hasMoreMeta } = await (dispatch as any)(fetchFinvizPage({ page: effectivePage + 1 })).unwrap();
-    nextCache = sNext;
-    hasMore = hasMoreMeta || (sNext.length > 0);
-
-    // warm background
-    const t1 = sNext.map((s: Stock) => s.ticker);
-    if (t1.length) {
-      const qs1 = encodeURIComponent(t1.join(","));
-      void fetchJSON(`/api/fh/quotes-batch?symbols=${qs1}`, { noStore: true });
-      void fetchJSON(`/api/fh/metrics-batch?lite=1&symbols=${qs1}`, { noStore: true });
-    }
-  } catch {
-    hasMore = false;
-    nextCache = null;
-  }
-
-  // IMPORTANT: no full fundamentals fetch here
-
-  return { items: enrichedNext, nextCache, page: effectivePage, hasMore };
-});
-
-// ---------- GOTO PAGE (1-based) — returns enriched items ----------
+// ---------- goToPage ----------
 export const goToPage = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
   { page1: number }
 >("stocks/goToPage", async ({ page1 }, { dispatch }) => {
   const page0 = Math.max(0, (page1 | 0) - 1);
 
-  // Current raw page
-  const { page: p0, stocks: s0, hasMoreMeta: more0 } =
-    await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
+  const { page: p0, stocks: s0, hasMoreMeta: more0 } = await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
 
-  const tickers0 = s0.map((s: Stock) => s.ticker);
-  let quotes0: Record<string, Quote | null> = {};
-  let lite0: Record<string, LiteMetrics | null> = {};
-
-  if (tickers0.length) {
-    const qs = encodeURIComponent(tickers0.join(","));
-    const [qData, mData] = await Promise.all([
-      fetchJSON<{ quotes: Record<string, Quote | null> }>(`/api/fh/quotes-batch?symbols=${qs}`, { noStore: true, timeoutMs: 15000 }),
-      fetchJSON<{ metrics: Record<string, LiteMetrics | null> }>(`/api/fh/metrics-batch?lite=1&symbols=${qs}`, { noStore: true, timeoutMs: 20000 }),
-    ]);
-    quotes0 = qData?.quotes ?? {};
-    lite0 = mData?.metrics ?? {};
-  }
-
-  // Enrich and set
-  const enriched = enrichWithQuoteAndLite(s0, quotes0, lite0);
-
-  // Prefetch next raw
+  // Префетч сырой следующей
   let nextCache: Stock[] | null = null;
   let hasMore = !!more0;
   if (more0) {
@@ -474,22 +227,12 @@ export const goToPage = createAsyncThunk<
       const { stocks: s1, hasMoreMeta: more1 } = await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
       nextCache = s1;
       hasMore = more1 || s1.length > 0;
-
-      // warm background
-      const t1 = s1.map((s: Stock) => s.ticker);
-      if (t1.length) {
-        const qs1 = encodeURIComponent(t1.join(","));
-        void fetchJSON(`/api/fh/quotes-batch?symbols=${qs1}`, { noStore: true });
-        void fetchJSON(`/api/fh/metrics-batch?lite=1&symbols=${qs1}`, { noStore: true });
-      }
     } catch {
       nextCache = null;
     }
   }
 
-  // IMPORTANT: no full fundamentals fetch here
-
-  return { items: enriched, nextCache, page: p0, hasMore: hasMore || Boolean(nextCache?.length) };
+  return { items: s0, nextCache, page: p0, hasMore };
 });
 
 // ---------- slice ----------
@@ -504,62 +247,27 @@ const stocksSlice = createSlice({
       state.error = undefined;
       state.currentPage = -1;
       state.hasMore = true;
+      state.pageEpoch = 0;
     },
   },
   extraReducers: (builder) => {
     builder
-      // bootstrap
-      .addCase(bootstrapFromFinviz.pending, (state) => {
-        state.status = "loading";
-        state.error = undefined;
-      })
-      .addCase(bootstrapFromFinviz.fulfilled, (state, action) => {
-        state.status = "succeeded";
-        state.items = action.payload.items;
-        state.nextCache = action.payload.nextCache;
-        state.currentPage = action.payload.page;
-        state.hasMore = action.payload.hasMore;
-      })
-      .addCase(bootstrapFromFinviz.rejected, (state, action) => {
-        state.status = "failed";
-        state.error = action.error?.message || "Unknown error";
-      })
-
-      // next
-      .addCase(loadNextAndReplace.pending, (state) => {
-        state.status = "loading";
-        state.error = undefined;
-      })
-      .addCase(loadNextAndReplace.fulfilled, (state, action) => {
-        state.status = "succeeded";
-        state.items = action.payload.items;
-        state.nextCache = action.payload.nextCache;
-        state.currentPage = action.payload.page;
-        state.hasMore = action.payload.hasMore;
-      })
-      .addCase(loadNextAndReplace.rejected, (state, action) => {
-        state.status = "failed";
-        state.error = action.error?.message || "Unknown error";
-      })
-
-      // goToPage
       .addCase(goToPage.pending, (state) => {
         state.status = "loading";
         state.error = undefined;
       })
       .addCase(goToPage.fulfilled, (state, action) => {
         state.status = "succeeded";
-        state.items = action.payload.items;
+        state.items = action.payload.items;      // мгновенно показываем «пустые» карточки
         state.nextCache = action.payload.nextCache;
-        state.currentPage = action.payload.page; // 0-based
+        state.currentPage = action.payload.page;
         state.hasMore = action.payload.hasMore;
+        state.pageEpoch += 1;                    // новая страница => новая эпоха
       })
       .addCase(goToPage.rejected, (state, action) => {
         state.status = "failed";
         state.error = action.error?.message || "Unknown error";
       })
-
-      // targeted patches (details/background-lite)
       .addCase(mergeStockPatch, (state, action: PayloadAction<any>) => {
         const i = state.items.findIndex((s) => s.ticker === action.payload.ticker);
         if (i !== -1) state.items[i] = { ...(state.items[i] as any), ...action.payload } as Stock;

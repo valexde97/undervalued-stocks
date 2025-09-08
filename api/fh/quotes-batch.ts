@@ -78,12 +78,13 @@ async function searchBestSymbol(raw: string, token: string, companyName?: string
   }
 }
 
-// простые варианты до search()
-function* generateSymbolVariants(sym: string): Generator<string> {
-  yield sym;
-  if (sym.includes("-")) yield sym.replace(/-/g, ".");
-  if (sym.includes(".")) yield sym.replace(/\./g, "-");
-  if (/[ _]/.test(sym)) yield sym.replace(/[ _]/g, "");
+// простые варианты до search() — МАССИВ вместо генератора (чтобы не требовался downlevelIteration)
+function generateSymbolVariants(sym: string): string[] {
+  const out = [sym];
+  if (sym.includes("-")) out.push(sym.replace(/-/g, "."));
+  if (sym.includes(".")) out.push(sym.replace(/\./g, "-"));
+  if (/[ _]/.test(sym)) out.push(sym.replace(/[ _]/g, ""));
+  return Array.from(new Set(out));
 }
 
 export default async function handler(req: any, res: any) {
@@ -219,7 +220,7 @@ export default async function handler(req: any, res: any) {
     res.setHeader("Expires", "0");
     if (now < GLOBAL_BACKOFF_UNTIL) res.setHeader("Retry-After", Math.ceil((GLOBAL_BACKOFF_UNTIL - now) / 1000));
 
-    // BACK-COMPAT: кроме quotes мапы отдадим ещё items[]
+    // BACK-COMPAT: помимо quotes отдадим ещё items[]
     const items = symbols.map((symbol) => ({
       symbol,
       quote: quotes[symbol] ?? null,
