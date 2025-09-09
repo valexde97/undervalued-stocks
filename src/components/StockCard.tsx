@@ -151,16 +151,15 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       </div>
 
       <div className={styles.ctaWrap}>
-<Link
+    <Link
   to={`/stocks/${stock.ticker}`}
-  state={{ seed: { price: stock.price ?? (stock as any)?.prevClose ?? null, category: stock.category ?? null } }}
-  onClick={() => dispatch(seedDetails({
-    ticker: stock.ticker,
-    price: stock.price ?? (stock as any)?.prevClose ?? null,
-    category: stock.category ?? null
-  }))}
-/>
-
+  state={{ seed: { price: stock.price ?? null, category: stock.category ?? null } }}
+  onClick={() => dispatch(seedDetails({ ticker: stock.ticker, price: stock.price ?? null, category: stock.category ?? null })) }
+>
+  <motion.button className={styles.viewButton} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+    View Details
+  </motion.button>
+</Link>
       </div>
     </motion.div>
   );
