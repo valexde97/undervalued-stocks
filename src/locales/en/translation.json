@@ -50,28 +50,24 @@
       "about": "About the Company",
       "description": "This is a placeholder description for the company. In the future, it will be replaced by real API data."
     },
-    "filter": {
-      "title": "🔍 Filter Stocks",
-      "sortBy": "Sort By",
-      "minPrice": "Min Price",
-      "maxPrice": "Max Price",
-      "category": "Category",
-      "none": "None",
-      "priceAsc": "Price (Low to High)",
-      "priceDesc": "Price (High to Low)",
-      "nameAsc": "Name (A to Z)",
-      "nameDesc": "Name (Z to A)",
-      "select": "Select",
-      "small": "Small Cap",
-      "mid": "Mid Cap",
-      "large": "Large Cap",
-      "apply": "Apply Filter"
-    },
-    
-      "main": {
-        "title": "Welcome to InvApp",
-        "subtitle": "Discover undervalued stocks based on Peter Lynch's strategy."
-      }
-    }
   
+    
+
+  "main": {
+    "title": "Welcome to InvApp",
+    "subtitle": "Discover undervalued stocks based on Peter Lynch's strategy."
+  },
+  "homeHero": {
+    "description": "This app helps investors select undervalued stocks inspired by Peter Lynch's approach.",
+    "criteriaTitle": "Screening criteria",
+    "criteria": {
+      "pe": "P/E < 15",
+      "ps": "P/S < 1",
+      "price": "Share price < $20"
+    },
+    "notes": "These are mostly small-cap companies with high growth potential. The list is sorted by increasing undervaluation based on P/E.",
+    "frontendOnly": "This is the front-end version and works exclusively with public APIs. To unlock the full potential, use the version with a connected back end."
+  }
+}
+
   

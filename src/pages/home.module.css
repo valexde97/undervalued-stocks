@@ -17,6 +17,7 @@
   gap: 6px;
   margin: 8px 0 14px;
 }
+.intro { background: var(--card-bg); box-shadow: var(--shadow); border-radius: 14px; padding: 16px; }
 
 .marketBadge {
   padding: 4px 8px;

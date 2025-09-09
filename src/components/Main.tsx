@@ -10,8 +10,6 @@ export const Main = ({ children }: Props) => {
 
   return (
     <div style={{ textAlign: "center", marginBottom: "2rem" }}>
-      <h2>{t("main.title")}</h2>
-      <p>{t("main.subtitle")}</p>
       {children}
     </div>
   );

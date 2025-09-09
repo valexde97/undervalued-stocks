@@ -49,25 +49,21 @@
     "description": "Dies ist eine Platzhalterbeschreibung für das Unternehmen. In Zukunft wird sie durch echte API-Daten ersetzt."
   },
 
-  "filter": {
-    "title": "🔍 Aktien filtern",
-    "sortBy": "Sortieren nach",
-    "minPrice": "Mindestpreis",
-    "maxPrice": "Höchstpreis",
-    "category": "Kategorie",
-    "none": "Keine",
-    "priceAsc": "Preis (aufsteigend)",
-    "priceDesc": "Preis (absteigend)",
-    "nameAsc": "Name (A bis Z)",
-    "nameDesc": "Name (Z bis A)",
-    "select": "Auswählen",
-    "small": "Small Cap",
-    "mid": "Mid Cap",
-    "large": "Large Cap",
-    "apply": "Filter anwenden"
-  },
   "main": {
     "title": "Willkommen bei InvApp",
     "subtitle": "Entdecke unterbewertete Aktien nach der Strategie von Peter Lynch."
+  },
+  "homeHero": {
+    "description": "Diese App hilft Anlegern, unterbewertete Aktien nach dem Ansatz von Peter Lynch auszuwählen.",
+    "criteriaTitle": "Screening-Kriterien",
+    "criteria": {
+      "pe": "KGV < 15",
+      "ps": "KUV < 1",
+      "price": "Aktienkurs < 20 $"
+    },
+    "notes": "Es handelt sich überwiegend um Small Caps mit hohem Wachstumspotenzial. Die Liste ist nach aufsteigender Unterbewertung (KGV) sortiert.",
+    "frontendOnly": "Dies ist die Frontend-Version und arbeitet ausschließlich mit öffentlichen APIs. Für das volle Potenzial nutze die Version mit angebundenem Backend."
   }
 }
+
+
