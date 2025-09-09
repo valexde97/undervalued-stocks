@@ -108,7 +108,7 @@ function sanitizeCompany(s?: string | null) {
 function parseTotalText(txt: string): number | null {
   const m1 = txt.match(/Total:\s*([\d,]+)/i);
   if (m1?.[1]) return parseInt(m1[1].replace(/,/g, ""), 10);
-  const m2 = txt.match(/#\s*\d+\s*\/\s*([\д,]+)\s*Total/i);
+  const m2 = txt.match(/#\s*\d+\s*\/\s*([\d,]+)\s*Total/i);
   if (m2?.[1]) return parseInt(m2[1].replace(/,/g, ""), 10);
   return null;
 }
@@ -152,7 +152,7 @@ function parseTickersAndNames(html: string) {
     try {
       const u = new URL(href, "https://finviz.com/");
       ticker = (u.searchParams.get("t") || "").toUpperCase().trim();
-    } catch {}
+    } catch { /* empty */ }
     if (!ticker) ticker = ($link.text() || "").toUpperCase().trim();
     if (!ticker || !TICKER_OK.test(ticker)) return;
     if (seen.has(ticker)) return;
@@ -260,7 +260,7 @@ async function handleFinviz(req: any, res: any, url: URL) {
       res.setHeader("X-Cache", "HIT");
     }
 
-    const items = parseOverviewTopGainers(html).slice(0, limit);
+    const items = parseOverviewTopGainers(html ?? "").slice(0, limit);
 
     res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=30");
     res.setHeader("Content-Type", "application/json");
@@ -287,7 +287,7 @@ async function handleFinviz(req: any, res: any, url: URL) {
     res.setHeader("X-Cache", "HIT");
   }
 
-  const { items, total } = parseTickersAndNames(html);
+  const { items, total } = parseTickersAndNames(html ?? "");
 
   let hasMore = items.length === PAGE_SIZE;
   if (!hasMore) {
