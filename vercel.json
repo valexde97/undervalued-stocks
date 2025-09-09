@@ -1,6 +1,18 @@
 {
   "framework": "vite",
   "devCommand": "vite --port $PORT",
-  "buildCommand": "vite build"
-}
+  "buildCommand": "vite build",
+  "routes": [
+    { "handle": "filesystem" },
 
+    { "src": "/api/(.*)", "dest": "/api/$1" },
+
+    { "src": "/@(.*)", "dest": "/@$1" },
+    { "src": "/__vite_ping", "dest": "/__vite_ping" },
+    { "src": "/src/(.*)", "dest": "/src/$1" },
+    { "src": "/node_modules/(.*)", "dest": "/node_modules/$1" },
+    { "src": "/assets/(.*)", "dest": "/assets/$1" },
+
+    { "src": "/(.*)", "dest": "/index.html" }
+  ]
+}
