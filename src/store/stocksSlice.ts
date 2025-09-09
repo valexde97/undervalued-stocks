@@ -189,6 +189,45 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
   }
 );
 
+export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }>(
+  "stocks/prioritizeDetailsTicker",
+  async ({ ticker }, { dispatch }) => {
+    const t = ticker.trim().toUpperCase();
+    if (!t) return;
+
+    const resp = await fetchJSON<SnapshotResponse>(
+      `/api/fh/snapshot-batch?symbols=${encodeURIComponent(t)}`,
+      { noStore: true, timeoutMs: 20000 }
+    );
+
+    const it = resp.items?.[0];
+    if (!it) return;
+
+    const capM = (typeof it.marketCapM === "number" && Number.isFinite(it.marketCapM) && it.marketCapM > 0)
+      ? Math.min(it.marketCapM, 5_000_000)
+      : null;
+
+    const patch: any = {
+      ticker: it.ticker,
+      price: it.price ?? null,
+      changePct: it.changePct ?? null,
+      ...(it.open != null ? { open: it.open } : {}),
+      ...(it.high != null ? { high: it.high } : {}),
+      ...(it.low  != null ? { low:  it.low  } : {}),
+      ...(it.prevClose != null ? { prevClose: it.prevClose } : {}),
+      ...(typeof it.name === "string" && it.name.trim() ? { name: it.name.trim() } : {}),
+      ...(typeof it.industry === "string" ? { industry: it.industry } : {}),
+      ...(typeof it.country  === "string" ? { country:  it.country  } : {}),
+      ...(typeof capM === "number" ? { marketCap: capM } : {}),
+      category: capM == null ? null : (capM >= 10_000 ? "large" : capM >= 1_000 ? "mid" : "small"),
+    };
+    if ((it as any).logo) patch.logo = (it as any).logo;
+
+    dispatch(mergeStockPatch(patch));
+  }
+);
+
+
 // ---- Навигация ----
 export const goToPage = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
