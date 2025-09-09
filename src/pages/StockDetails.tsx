@@ -90,7 +90,7 @@ export const StockDetails = () => {
       <RawMetricsTable metric={metric} loading={metricsLoading} error={metricsError} />
 
       {/* ABOUT */}
-      <AboutSection symbol={upper} metric={metric} />
+<AboutSection symbol={upper} metric={metric} metricsLoading={metricsLoading} priceSeed={priceSeed} />
     </motion.div>
   );
 };
