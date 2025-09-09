@@ -2,7 +2,8 @@
 export const runtime = "nodejs";
 
 import * as cheerio from "cheerio";
-import { llmCommentary } from "./_handlers/llmCommentary";
+// ВАЖНО: хелпер вынесен ИЗ /api → не создаёт отдельную функцию
+import { llmCommentary } from "../src/server/llmCommentary";
 
 /* ------------------------- utils ------------------------- */
 function sendJSON(res: any, code: number, obj: any) {
@@ -186,14 +187,13 @@ function parseOverviewTopGainers(html: string): Gainer[] {
     : $table.find("tr").first();
 
   const headers = $headRow.find("th,td").toArray().map(th => $(th).text().trim().toLowerCase());
-
-  function idxOf(...names: string[]) {
+  const idxOf = (...names: string[]) => {
     for (const n of names) {
       const i = headers.findIndex(h => h === n || h.includes(n));
       if (i >= 0) return i;
     }
     return -1;
-  }
+  };
 
   const idxTicker = idxOf("ticker");
   const idxCompany = idxOf("company");
@@ -231,8 +231,7 @@ function parseOverviewTopGainers(html: string): Gainer[] {
     const marketCapText = sanitizeCompany(textAt(idxMarketCap)) ?? null;
 
     const price = parseNumberSafe(textAt(idxPrice));
-    const chTxt = textAt(idxChange);
-    const changePct = parseNumberSafe(chTxt);
+    const changePct = parseNumberSafe(textAt(idxChange));
     const pe = parseNumberSafe(textAt(idxPE));
 
     out.push({ ticker, company: company ?? null, sector: sector ?? null, industry: industry ?? null, price, changePct, marketCapText, pe });
@@ -314,8 +313,7 @@ function parseRetryAfterMs(h?: string | null) {
   const d = Date.parse(s);
   return Number.isNaN(d) ? 0 : Math.max(0, d - Date.now());
 }
-
-async function handleFhQuote(req: any, res: any, url: URL) {
+async function handleFhQuote(_req: any, res: any, url: URL) {
   const symbol = (url.searchParams.get("symbol") || "").trim();
   if (!symbol) return sendJSON(res, 400, { error: "symbol required" });
 
@@ -379,7 +377,7 @@ export default async function handler(req: any, res: any) {
     const path = url.pathname.replace(/^\/api\/?/, "").replace(/\/+$/, "");
     const method = req.method || "GET";
 
-    // --- LLM commentary (requires ./_handlers/llmCommentary) ---
+    // --- LLM commentary ---
     if (method === "POST" && (path === "llm/commentary" || path === "llm/commentary/")) {
       return llmCommentary(req, res);
     }
