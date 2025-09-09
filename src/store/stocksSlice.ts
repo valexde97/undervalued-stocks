@@ -23,24 +23,6 @@ type SnapshotItem = {
 };
 type SnapshotResponse = { items: SnapshotItem[]; serverTs?: number; backoffUntil?: number };
 
-type FmpProfileItem = {
-  symbol?: string;
-  companyName?: string;
-  description?: string;
-  industry?: string;
-  sector?: string;
-  country?: string;
-  city?: string;
-  website?: string;
-  fullTimeEmployees?: number;
-  exchangeShortName?: string;
-  currency?: string;
-  mktCap?: number;
-  ipoDate?: string;
-  image?: string;
-};
-type FmpProfileApiResp = { symbol: string; serverTs: number; profile: FmpProfileItem | null };
-
 /* =========================
    State
 ========================= */
@@ -57,13 +39,10 @@ export type StocksState = {
   // Кеш семян для страницы деталей
   detailsSeeds: Record<string, { price: number | null; category: Stock["category"] | null; ts: number }>;
 
-  // Бесплатные FMP-профили (Company Profile): кэш и очередь
-  fmpProfiles: Record<
-    string,
-    { profile: FmpProfileItem | null; error?: string | null; ts: number }
-  >;
-  fmpQueue: string[];      // тикеры, ожидающие загрузки профиля
-  fmpBusy: boolean;        // идёт ли сейчас фоновая загрузка очереди
+  // FMP profiles — оставляем поля, но больше не используем (отключено)
+  fmpProfiles: Record<string, { profile: any | null; error?: string | null; ts: number }>;
+  fmpQueue: string[];
+  fmpBusy: boolean;
 };
 
 const initialState: StocksState = {
@@ -286,11 +265,8 @@ export const goToPage = createAsyncThunk<
     } catch { /* ignore */ }
   }
 
-  // Стартуем фоновую очередную загрузку бесплатных FMP-профилей для текущей страницы
-  try {
-    const tickers = s0.map(s => s.ticker);
-    await (dispatch as any)(queueFmpProfilesForTickers({ tickers }));
-  } catch { /* ignore */ }
+  // Раньше тут ставили в очередь FMP-профили для текущей страницы.
+  // Теперь отключено (free plan) — заглушка, никаких сетевых вызовов.
 
   return { items: s0, nextCache, page: p0, hasMore };
 });
@@ -332,90 +308,19 @@ export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }
 
     dispatch(mergeStockPatch(patch));
 
-    // Заодно поставим в очередь FMP-профиль конкретного тикера (если ещё не загружен)
+    // Раньше ставили FMP-профиль тикера в очередь — теперь отключено.
     await (dispatch as any)(queueFmpProfilesForTickers({ tickers: [t] }));
   }
 );
 
 /* =========================
-   Thunks: FMP Profiles (free)
-   — очередь «один за другим»
+   Thunks: FMP Profiles — заглушка
 ========================= */
-
-// Настраиваемая пауза между запросами к FMP
-const FMP_DELAY_MS = Number((import.meta as any)?.env?.VITE_FMP_PROFILE_RPS_DELAY_MS ?? 300) || 300;
-
-// Внутренние actions для очереди
-const addToFmpQueue = createAction<{ tickers: string[] }>("stocks/addToFmpQueue");
-const shiftFmpQueue = createAction<void>("stocks/shiftFmpQueue");
-const setFmpBusy = createAction<{ busy: boolean }>("stocks/setFmpBusy");
-const storeFmpProfile = createAction<{ ticker: string; profile: FmpProfileItem | null; error?: string | null }>(
-  "stocks/storeFmpProfile"
-);
-
-/**
- * Положить тикеры в очередь загрузки FMP-профилей и запустить обработчик.
- * Пропускаем то, что уже в кэше/очереди.
- */
-export const queueFmpProfilesForTickers = createAsyncThunk<void, { tickers: string[] }, { state: { stocks: StocksState } }>(
+export const queueFmpProfilesForTickers = createAsyncThunk<void, { tickers: string[] }>(
   "stocks/queueFmpProfilesForTickers",
-  async ({ tickers }, { getState, dispatch }) => {
-    const st = getState().stocks;
-    const normalized = tickers
-      .map(t => t.toUpperCase().trim())
-      .filter(Boolean)
-      .filter(t => !(t in st.fmpProfiles) && !st.fmpQueue.includes(t));
-
-    if (normalized.length) {
-      dispatch(addToFmpQueue({ tickers: normalized }));
-    }
-
-    // Если обработчик не занят — запускаем
-    if (!getState().stocks.fmpBusy) {
-      await (dispatch as any)(processFmpQueue());
-    }
-  }
-);
-
-/**
- * Обработчик очереди: тянем /api/fmp/profile?symbol=... по одному, с паузой.
- * Уважает остановку (busy=false) и моментально завершится, если очередь опустела.
- */
-export const processFmpQueue = createAsyncThunk<void, void, { state: { stocks: StocksState } }>(
-  "stocks/processFmpQueue",
-  async (_: void, { getState, dispatch }) => {
-    // Если уже идёт обработка — выходим
-    if (getState().stocks.fmpBusy) return;
-
-    dispatch(setFmpBusy({ busy: true }));
-    try {
-      // Бежим, пока в очереди есть тикеры
-      while (true) {
-        const st = getState().stocks;
-        const nextTicker = st.fmpQueue[0];
-        if (!nextTicker) break;
-
-        try {
-          const resp = await fetchJSON<FmpProfileApiResp>(`/api/fmp/profile?symbol=${encodeURIComponent(nextTicker)}`, {
-            noStore: true,
-            timeoutMs: 15000,
-          });
-          const profile = resp?.profile ?? null;
-          dispatch(storeFmpProfile({ ticker: nextTicker, profile, error: null }));
-        } catch (e: any) {
-          dispatch(storeFmpProfile({ ticker: nextTicker, profile: null, error: String(e?.message || e) }));
-        } finally {
-          dispatch(shiftFmpQueue());
-        }
-
-        // Пауза между запросами — чтобы не «прибить» приложение и уважить лимиты
-        if (FMP_DELAY_MS > 0) {
-          await new Promise(r => setTimeout(r, FMP_DELAY_MS));
-        }
-      }
-    } finally {
-      dispatch(setFmpBusy({ busy: false }));
-    }
+  async () => {
+    // no-op: FMP отключён
+    return;
   }
 );
 
@@ -437,6 +342,7 @@ const stocksSlice = createSlice({
 
       state.detailsSeeds = {};
 
+      // FMP disabled: просто очищаем поля
       state.fmpProfiles = {};
       state.fmpQueue = [];
       state.fmpBusy = false;
@@ -471,39 +377,6 @@ const stocksSlice = createSlice({
           category: (category ?? null) as Stock["category"] | null,
           ts: Date.now(),
         };
-      })
-
-      // Очередь FMP: add / shift / busy / store
-      .addCase(addToFmpQueue, (state, action) => {
-        const toAdd: string[] = [];
-        for (const t of action.payload.tickers) {
-          const up = t.toUpperCase();
-          if (state.fmpProfiles[up]) continue;           // уже закэширован
-          if (state.fmpQueue.includes(up)) continue;     // уже в очереди
-          toAdd.push(up);
-        }
-        if (toAdd.length) state.fmpQueue.push(...toAdd);
-      })
-      .addCase(shiftFmpQueue, (state) => {
-        state.fmpQueue.shift();
-      })
-      .addCase(setFmpBusy, (state, action) => {
-        state.fmpBusy = !!action.payload.busy;
-      })
-      .addCase(storeFmpProfile, (state, action) => {
-        const { ticker, profile, error } = action.payload;
-        state.fmpProfiles[ticker.toUpperCase()] = { profile, error: error ?? null, ts: Date.now() };
-
-        // Бонус: если из профиля пришли базовые поля — можем мягко дополнить карточку
-        const idx = state.items.findIndex(s => s.ticker === ticker.toUpperCase());
-        if (idx !== -1 && profile) {
-          const patch: Partial<Stock> = {};
-          if (profile.industry && !state.items[idx].industry) patch.industry = profile.industry;
-          if (profile.country && !state.items[idx].country) patch.country = profile.country;
-          if (profile.sector && !state.items[idx].sector) patch.sector = profile.sector as any;
-          // market cap у FMP может быть в долларах; карточка хранит миллионы — не трогаем здесь.
-          state.items[idx] = { ...state.items[idx], ...patch };
-        }
       });
   },
 });
@@ -522,6 +395,7 @@ export const selectVisibleStocks = (state: RootState) => state.stocks.items;
 export const selectSeedByTicker = (ticker: string) => (state: RootState) =>
   state.stocks.detailsSeeds[ticker.toUpperCase()] || null;
 
+// FMP selectors сохраняем как заглушки для совместимости
 export const selectFmpProfileByTicker = (ticker: string) => (state: RootState) =>
   state.stocks.fmpProfiles[ticker.toUpperCase()]?.profile ?? null;
 
