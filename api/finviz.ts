@@ -37,10 +37,6 @@ function buildUrl(page: number, f?: string, order?: string) {
 
 // Top gainers (signal)
 function buildTopGainersUrl(start = 1) {
-  // v=111 (Overview) has columns: Ticker, Company, Sector, Industry, Country, Market Cap, P/E, Price, Change, …
-  // s=ta_topgainers — преднастроенный сигнал Finviz
-  // r — стартовый индекс
-  // o=-change — явно сортируем по убыванию изменения
   return `${BASE}?v=111&s=ta_topgainers&o=-change&r=${start}`;
 }
 
@@ -140,7 +136,6 @@ function parseOverviewTopGainers(html: string): Gainer[] {
   const $table = pickScreenerTable($);
   if (!$table) return [];
 
-  // Определяем индексы колонок по заголовкам
   const $headRow = $table.find("thead tr").first().length
     ? $table.find("thead tr").first()
     : $table.find("tr").first();
@@ -178,7 +173,6 @@ function parseOverviewTopGainers(html: string): Gainer[] {
       const $a = $($tds.get(idxTicker)).find('a[href*="quote.ashx?t="]').first();
       ticker = ($a.text() || "").toUpperCase().trim();
     } else {
-      // fallback: ищем первую ссылку на quote
       const $a = $(tr).find('a[href*="quote.ashx?t="]').first();
       ticker = ($a.text() || "").toUpperCase().trim();
     }
@@ -192,7 +186,7 @@ function parseOverviewTopGainers(html: string): Gainer[] {
     const marketCapText = sanitizeCompany(textAt(idxMarketCap)) ?? null;
 
     const price = parseNumberSafe(textAt(idxPrice));
-    const chTxt = textAt(idxChange); // e.g. "+12.34%"
+    const chTxt = textAt(idxChange);
     const changePct = parseNumberSafe(chTxt);
     const pe = parseNumberSafe(textAt(idxPE));
 
@@ -200,6 +194,49 @@ function parseOverviewTopGainers(html: string): Gainer[] {
   });
 
   return out;
+}
+
+/** ---------- in-memory LRU + single-flight ---------- */
+type CacheEntry<T> = { exp: number; data: T; };
+const MEM_CAP = 64;
+const mem = new Map<string, CacheEntry<any>>();
+const inflight = new Map<string, Promise<any>>();
+
+function getMem<T>(key: string): T | null {
+  const e = mem.get(key);
+  if (!e) return null;
+  if (Date.now() > e.exp) { mem.delete(key); return null; }
+  return e.data as T;
+}
+function putMem<T>(key: string, data: T, ttlMs: number) {
+  if (mem.size >= MEM_CAP) {
+    const firstKey = mem.keys().next().value;
+    if (firstKey) mem.delete(firstKey);
+  }
+  mem.set(key, { exp: Date.now() + ttlMs, data });
+}
+
+async function fetchWithRetries(url: string, init?: RequestInit, tries = 5): Promise<string> {
+  let lastErr: any;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, init);
+      if (r.status === 429 || (r.status >= 500 && r.status <= 599)) {
+        lastErr = new Error(`${r.status} ${r.statusText}`);
+      } else if (!r.ok) {
+        const txt = await r.text().catch(() => "");
+        throw new Error(`${r.status} ${r.statusText}${txt ? ` — ${txt}` : ""}`);
+      } else {
+        return await r.text();
+      }
+    } catch (e: any) {
+      lastErr = e;
+    }
+    const base = 300 * Math.pow(2, i); // 300, 600, 1200, 2400, 4800
+    const jitter = Math.floor(Math.random() * 250);
+    await new Promise(r => setTimeout(r, base + jitter));
+  }
+  throw lastErr || new Error("Upstream failed");
 }
 
 /** ---------- handler ---------- */
@@ -210,13 +247,27 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // --- New: Top Gainers mode ---
     if (mode === "topgainers") {
       const limit = Math.max(1, Math.min(10, parseInt(String((req.query as any).limit ?? "3"), 10) || 3));
-      const start = 1; // берём первую страницу «топов»
+      const start = 1;
       const url = buildTopGainersUrl(start);
+      const key = `tg:${start}`;
+      const ttlMs = 60_000; // 60s
 
-      const html = await fetch(url, { headers: HEADERS }).then(r => r.text());
-      const items = parseOverviewTopGainers(html).slice(0, limit);
+      let from = "MISS";
+      let html = getMem<string>(key);
+      if (!html) {
+        const p = inflight.get(key) ?? fetchWithRetries(url, { headers: HEADERS });
+        inflight.set(key, p);
+        html = await p.finally(() => inflight.delete(key));
+        putMem(key, html, ttlMs);
+      } else {
+        from = "HIT";
+      }
+
+      const items = parseOverviewTopGainers(html ?? "").slice(0, limit);
 
       res.setHeader("Cache-Control", "s-maxage=60, stale-while-revalidate=30");
+      res.setHeader("Vercel-CDN-Cache-Control", "s-maxage=60, stale-while-revalidate=30");
+      res.setHeader("X-Cache", from);
       res.setHeader("Content-Type", "application/json");
       res.status(200).json({ mode: "topgainers", limit, count: items.length, items });
       return;
@@ -228,8 +279,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const order = typeof (req.query as any).o === "string" ? ((req.query as any).o as string) : "pe";
 
     const fUsed = normalizeFilters(rawF ?? DEFAULT_F);
-    const html = await fetch(buildUrl(page, fUsed, order), { headers: HEADERS }).then((r) => r.text());
-    const { items, total } = parseTickersAndNames(html);
+    const apiUrl = buildUrl(page, fUsed, order);
+    const key = `list:${page}:${fUsed}:${order}`;
+    const ttlMs = 600_000; // 10m
+
+    let from = "MISS";
+    let html = getMem<string>(key);
+    if (!html) {
+      const p = inflight.get(key) ?? fetchWithRetries(apiUrl, { headers: HEADERS });
+      inflight.set(key, p);
+      html = await p.finally(() => inflight.delete(key));
+      putMem(key, html, ttlMs);
+    } else {
+      from = "HIT";
+    }
+
+    const { items, total } = parseTickersAndNames(html ?? "");
 
     let hasMore = items.length === PAGE_SIZE;
     if (!hasMore) {
@@ -241,7 +306,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("X-Finviz-HasMore", hasMore ? "1" : "0");
     res.setHeader("X-Finviz-EffectiveF", fUsed);
     if (typeof total === "number") res.setHeader("X-Finviz-Total", String(total));
+    res.setHeader("X-Cache", from);
     res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=60");
+    res.setHeader("Vercel-CDN-Cache-Control", "s-maxage=600, stale-while-revalidate=60");
     res.setHeader("Content-Type", "application/json");
 
     res.status(200).json({ page, pageSize: PAGE_SIZE, count: items.length, total: typeof total === "number" ? total : undefined, items });

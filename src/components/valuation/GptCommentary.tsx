@@ -1,4 +1,3 @@
-// src/components/valuation/GptCommentary.tsx
 import React, { useState } from "react";
 import styles from "../../pages/stockDetails.module.css";
 
@@ -25,6 +24,7 @@ function hashString(s: string): string {
 }
 
 const TTL_MS = 6 * 60 * 60 * 1000; // 6h
+const GPT_DISABLED = typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_DISABLE_GPT === "1";
 
 const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, valuation }) => {
   const [open, setOpen] = useState(false);
@@ -51,6 +51,10 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
     setError(null);
 
     try {
+      if (GPT_DISABLED) {
+        throw new Error("ChatGPT временно отключён админ-флагом (VITE_DISABLE_GPT=1).");
+      }
+
       const m = metric || {};
       const compact = {
         pe: m.peTTM ?? m.peInclExtraTTM ?? m.peExclExtraTTM ?? null,
@@ -85,7 +89,6 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
         },
       };
 
-      // sessionStorage cache (ключ совпадает по логике с сервером)
       const key = `LLM:${symbol}:${hashString(JSON.stringify({ s: symbol, p: priceNow, c: category, m: compact, v: body.valuation }))}`;
       const ss = window.sessionStorage;
       const hit = ss.getItem(key);
@@ -131,9 +134,9 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
         style={{ padding: "0.45rem 0.9rem" }}
         onClick={askLLM}
         disabled={busy}
-        title="Отправить текущие метрики и оценки в ChatGPT для комментария"
+        title={GPT_DISABLED ? "ChatGPT отключён (env flag)" : "Отправить текущие метрики и оценки в ChatGPT для комментария"}
       >
-        {busy ? "Asking ChatGPT…" : "Show ChatGPT commentary"}
+        {busy ? "Asking ChatGPT…" : (GPT_DISABLED ? "ChatGPT disabled" : "Show ChatGPT commentary")}
       </button>
 
       {error ? (
