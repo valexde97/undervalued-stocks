@@ -15,6 +15,17 @@ type Props = {
   };
 };
 
+function hashString(s: string): string {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return (h >>> 0).toString(16);
+}
+
+const TTL_MS = 6 * 60 * 60 * 1000; // 6h
+
 const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, valuation }) => {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -22,12 +33,17 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
   const [text, setText] = useState<string | null>(null);
 
   function prettifyError(msg: string) {
-  if (msg.includes("OPENAI_API_KEY not set")) {
-    return "ChatGPT не настроен: добавьте OPENAI_API_KEY в переменные окружения сервера и перезапустите.";
+    if (msg.includes("OPENAI_API_KEY not set")) {
+      return "ChatGPT не настроен: добавьте OPENAI_API_KEY в переменные окружения сервера и перезапустите.";
+    }
+    if (/429/.test(msg) && /quota/i.test(msg)) {
+      return "ChatGPT: исчерпана квота аккаунта OpenAI (нужна оплата/кредиты в Billing).";
+    }
+    if (/429/.test(msg)) {
+      return "ChatGPT: слишком часто. Запрос ограничен со стороны сервера.";
+    }
+    return msg;
   }
-  return msg;
-}
-
 
   async function askLLM() {
     if (busy) return;
@@ -35,7 +51,6 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
     setError(null);
 
     try {
-      // Компактные метрики, чтобы не слать гигабайты
       const m = metric || {};
       const compact = {
         pe: m.peTTM ?? m.peInclExtraTTM ?? m.peExclExtraTTM ?? null,
@@ -70,19 +85,37 @@ const GptCommentary: React.FC<Props> = ({ symbol, priceNow, category, metric, va
         },
       };
 
+      // sessionStorage cache (ключ совпадает по логике с сервером)
+      const key = `LLM:${symbol}:${hashString(JSON.stringify({ s: symbol, p: priceNow, c: category, m: compact, v: body.valuation }))}`;
+      const ss = window.sessionStorage;
+      const hit = ss.getItem(key);
+      if (hit) {
+        const parsed = JSON.parse(hit);
+        if (parsed.exp > Date.now() && parsed.text) {
+          setText(parsed.text);
+          setOpen(true);
+          setBusy(false);
+          return;
+        } else {
+          ss.removeItem(key);
+        }
+      }
+
       const r = await fetch("/api/llm/commentary", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
 
+      const txt = await r.text().catch(() => "");
       if (!r.ok) {
-        const txt = await r.text().catch(() => "");
         throw new Error(`${r.status} ${r.statusText}${txt ? ` — ${txt}` : ""}`);
       }
 
-      const { commentary } = await r.json();
-      setText(commentary || "No commentary received.");
+      const { commentary } = JSON.parse(txt);
+      const finalText = commentary || "No commentary received.";
+      setText(finalText);
+      ss.setItem(key, JSON.stringify({ text: finalText, exp: Date.now() + TTL_MS }));
       setOpen(true);
     } catch (e: any) {
       setError(prettifyError(String(e?.message || e)));
