@@ -1,3 +1,4 @@
+/* src/pages/stockDetails.module.css */
 .wrapper {
   max-width: 1000px;
   margin: 2rem auto;
@@ -30,12 +31,23 @@
 
 .table {
   width: 100%;
-  margin-top: 1rem;
+  margin-top: 0.75rem;
   border-collapse: collapse;
 }
 
 .table td {
   padding: 0.5rem 0.75rem;
+  vertical-align: top;
+}
+
+.subhead {
+  padding: 0.5rem 0.75rem;
+  color: var(--primary-light);
+  opacity: 0.9;
+  font-weight: 600;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  margin: 0.5rem 0;
 }
 
 .chartPlaceholder {
@@ -48,3 +60,69 @@
   border-radius: 8px;
   font-size: 1.1rem;
 }
+
+/* Raw metrics block */
+.rawBlock {
+  margin-top: 1rem;
+}
+
+.rawSummary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-light);
+  list-style: none;
+  margin-bottom: 0.5rem;
+}
+
+.rawSummary::marker { display: none; }
+
+.rawTableWrap {
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255,255,255,0.02);
+}
+
+.metricsTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.95rem;
+}
+
+.metricsTable th,
+.metricsTable td {
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.metricsTable th {
+  text-align: left;
+  position: sticky;
+  top: 0;
+  background: rgba(0,0,0,0.25);
+  backdrop-filter: blur(2px);
+}
+
+.keyCell {
+  width: 50%;
+  opacity: 0.9;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.valCell {
+  width: 50%;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.errorText {
+  color: #ffb4b4;
+  font-weight: 600;
+}
+
+/* Responsive */
+@media (max-width: 880px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }}

@@ -4,6 +4,8 @@ import React, { useEffect, useMemo, useRef } from "react";
 import { useFavorites } from "./FavoritesContext";
 import type { Stock } from "../types/stock";
 import styles from "./stockCard.module.css";
+import { useAppDispatch } from "../store";
+import { seedDetails } from "../store/stocksSlice";
 
 type Props = { stock: Stock };
 
@@ -23,6 +25,7 @@ function prettyCategory(cat?: string | null) {
 const StockCardBase: React.FC<Props> = ({ stock }) => {
   const { favorites, toggleFavorite } = useFavorites();
   const isFavorite = favorites.includes(stock.ticker);
+  const dispatch = useAppDispatch();
 
   const ref = useRef<HTMLDivElement | null>(null);
   const inView = useInView(ref, { once: true, margin: "0px 0px -10% 0px" });
@@ -62,6 +65,17 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
 
   const dayRangeText = day.low != null && day.high != null ? `${day.low.toFixed(2)} – ${day.high.toFixed(2)}` : "—";
   const hasPrice = typeof day.price === "number" && Number.isFinite(day.price) && day.price > 0;
+
+  // ——— клик по View Details: сеем price/category в redux
+  const handleSeed = () => {
+    dispatch(
+      seedDetails({
+        ticker: stock.ticker,
+        price: hasPrice ? (day.price as number) : null,
+        category: (stock.category ?? null) as Stock["category"] | null,
+      })
+    );
+  };
 
   return (
     <motion.div
@@ -137,8 +151,16 @@ const StockCardBase: React.FC<Props> = ({ stock }) => {
       </div>
 
       <div className={styles.ctaWrap}>
-        <Link to={`/stocks/${stock.ticker}`}>
-          <motion.button className={styles.viewButton} whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }}>
+        <Link
+          to={`/stocks/${stock.ticker}`}
+          state={{ seed: { price: hasPrice ? day.price : null, category: stock.category ?? null } }}
+        >
+          <motion.button
+            className={styles.viewButton}
+            whileHover={{ scale: 1.03 }}
+            whileTap={{ scale: 0.97 }}
+            onClick={handleSeed}
+          >
             View Details
           </motion.button>
         </Link>

@@ -24,11 +24,11 @@ function App() {
 
   useEffect(() => {
     const p = location.pathname;
-    if (p === "/") document.title = "Undervalued Stocks — быстрый список недооценённых акций";
+    if (p === "/") document.title = "Undervalued Stocks — Smart investment helper";
     else if (/^\/\d+$/.test(p)) document.title = `Undervalued Stocks — Page ${p.slice(1)}`;
-    else if (p.startsWith("/stocks/")) document.title = "Детали акции — Undervalued Stocks";
-    else if (p === "/favorites") document.title = "Избранное — Undervalued Stocks";
-    else if (p === "/about") document.title = "О приложении — Undervalued Stocks";
+    else if (p.startsWith("/stocks/")) document.title = "Stock Details — Undervalued Stocks";
+    else if (p === "/favorites") document.title = "Favorites — Undervalued Stocks";
+    else if (p === "/about") document.title = "About — Undervalued Stocks";
     else document.title = "Undervalued Stocks";
   }, [location.pathname]);
 

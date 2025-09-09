@@ -1,6 +1,5 @@
-// api/fh/metrics.ts
-// Вытягиваем фундаментальные метрики Finnhub и отдаем компактный JSON.
-// Работает на том же домене (Vercel Functions), поэтому без CORS.
+// /api/fh/metrics.ts
+// Finnhub fundamentals (metric=all). Pass-through всей "metric" + serverTs.
 
 export const runtime = "nodejs";
 
@@ -9,51 +8,63 @@ type Json = Record<string, any>;
 export default async function handler(req: any, res: any) {
   try {
     const q = new URL(req.url, "http://localhost").searchParams;
-    const symbol = (q.get("symbol") || "").trim();
+    const symbol = (q.get("symbol") || "").trim().toUpperCase();
 
     if (!symbol) {
       res.statusCode = 400;
-      return res.end(JSON.stringify({ error: "symbol required" }));
+      res.setHeader("Content-Type", "application/json");
+      return res.end('{"error":"symbol required"}');
     }
 
     const token = process.env.VITE_FINNHUB_TOKEN || process.env.FINNHUB_TOKEN;
     if (!token) {
       res.statusCode = 500;
-      return res.end(JSON.stringify({ error: "FINNHUB token not set" }));
+      res.setHeader("Content-Type", "application/json");
+      return res.end('{"error":"FINNHUB token not set"}');
     }
 
-    const url = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(
+    const upstream = `https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(
       symbol
-    )}&metric=all&token=${token}`;
+    )}&metric=all&token=${token}&ts=${Date.now()}`;
 
-    const r = await fetch(url);
-    const data: Json = await r.json();
+    // короткий таймаут и no-store
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 12_000);
 
-    // Finnhub кладет метрики внутрь поля `metric`
-    const m: Json = data?.metric ?? {};
+    const r = await fetch(upstream, {
+      cache: "no-store",
+      signal: ctrl.signal,
+      headers: { "user-agent": "undervalued-stocks/1.0" },
+    }).catch((e) => {
+      throw new Error(`Upstream fetch failed: ${String((e as any)?.message || e)}`);
+    });
+    clearTimeout(t);
 
-    // Оставляем только то, что реально пригодится для андервалюации
-    const trimmed = {
-      marketCap: m.marketCapitalization,       // капа (USD)
-      shares: m.sharesBasic,                    // базовые акции
-      netIncomeTTM: m.netIncomeTTM,            // чистая прибыль (TTM)
-      epsTTM: m.epsBasicTTM ?? m.epsDilutedTTM,
-      revenueTTM: m.revenueTTM,
-      ebitdaTTM: m.ebitdaTTM,
-      operatingCfTTM: m.operatingCashFlowTTM,   // OCF (TTM)
-      capexTTM: m.capitalExpenditureTTM,        // CapEx (TTM)
-      totalDebt: m.totalDebt,
-      cashAndEq: m.totalCash,
-      revenueGrowthTTMYoy: m.revenueGrowthTTMYoy, // рост выручки YoY (в долях)
-      epsGrowthTTMYoy: m.epsGrowthTTMYoy,
-      roeTTM: m.roeTTM,
-      roicTTM: m.roicTTM,
-    };
+    const text = await r.text();
 
-    res.setHeader("Cache-Control", "s-maxage=600, stale-while-revalidate=3600");
+    // Анти-кеш заголовки на все уровни
+    res.statusCode = r.status;
     res.setHeader("Content-Type", "application/json");
-    res.statusCode = 200;
-    res.end(JSON.stringify(trimmed));
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("CDN-Cache-Control", "no-store");
+    res.setHeader("Vercel-CDN-Cache-Control", "no-store");
+
+    // Pass-through, но добавляем serverTs и symbol
+    try {
+      const json: Json = JSON.parse(text);
+      const out = {
+        symbol,
+        serverTs: Date.now(),
+        metric: json?.metric ?? {},
+        // при желании можно посмотреть json.metricType / json.series
+        metricType: json?.metricType ?? null,
+      };
+      return res.end(JSON.stringify(out));
+    } catch {
+      return res.end(text);
+    }
   } catch (e: any) {
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");

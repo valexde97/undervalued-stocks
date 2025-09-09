@@ -31,6 +31,9 @@ export type StocksState = {
   hasMore: boolean;
 
   pageEpoch: number;   // увеличиваем на каждую смену страницы
+
+  // Кеш семян для страницы деталей
+  detailsSeeds: Record<string, { price: number | null; category: Stock["category"] | null; ts: number }>;
 };
 
 const initialState: StocksState = {
@@ -40,10 +43,16 @@ const initialState: StocksState = {
   currentPage: -1,
   hasMore: true,
   pageEpoch: 0,
+  detailsSeeds: {},
 };
 
 // ---- helpers ----
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
+
+// кладём семя из карточки при клике на View Details
+export const seedDetails = createAction<{ ticker: string; price: number | null; category: Stock["category"] | null }>(
+  "stocks/seedDetails"
+);
 
 function capMillions(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
@@ -139,12 +148,6 @@ export const fetchFinvizPage = createAsyncThunk<
 });
 
 // ---- прогрессивная гидрация с мульти-проходами ----
-/**
- * Делаем до 3 проходов по текущей странице.
- * На каждом проходе: шлём батчи по 4 тикера → патчим карточки сразу по приходу.
- * Если сервер дал backoffUntil — ждём и продолжаем.
- * Прерываемся, если сменился pageEpoch.
- */
 export const hydratePageProgressively = createAsyncThunk<void, void, { state: { stocks: StocksState } }>(
   "stocks/hydratePageProgressively",
   async (_: void, { getState, dispatch }) => {
@@ -155,7 +158,6 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
     const MAX_PASSES = 3;
     const CHUNK = 4;
 
-    // считаем заполненной карточку, если есть либо price, либо marketCap
     const isFilled = (it: SnapshotItem) =>
       (typeof it.price === "number" && Number.isFinite(it.price) && it.price > 0) ||
       (typeof it.marketCapM === "number" && Number.isFinite(it.marketCapM) && it.marketCapM > 0);
@@ -179,11 +181,10 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
           resp = await fetchJSON<SnapshotResponse>(`/api/fh/snapshot-batch?symbols=${qs}`, {
             noStore: true, timeoutMs: 22000,
           });
-        } catch { /* пропускаем этот батч, попробуем на следующем проходе */ }
+        } catch { /* next pass */ }
 
         if (!resp?.items?.length) continue;
 
-        // уважим backoff
         if (resp.backoffUntil && resp.backoffUntil > Date.now()) {
           const waitMs = Math.min(resp.backoffUntil - Date.now(), 3500);
           await new Promise(r => setTimeout(r, waitMs));
@@ -214,11 +215,9 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
           if (isFilled(it)) remaining.delete(it.ticker);
         }
 
-        // небольшая рассинхронизация, чтобы не врезаться в лимиты
         await new Promise(r => setTimeout(r, 120));
       }
 
-      // между проходами — короткая пауза
       if (remaining.size && pass + 1 < MAX_PASSES) {
         await new Promise(r => setTimeout(r, 300));
       }
@@ -301,6 +300,7 @@ const stocksSlice = createSlice({
       state.currentPage = -1;
       state.hasMore = true;
       state.pageEpoch = 0;
+      state.detailsSeeds = {};
     },
   },
   extraReducers: (builder) => {
@@ -324,6 +324,14 @@ const stocksSlice = createSlice({
       .addCase(mergeStockPatch, (state, action: PayloadAction<any>) => {
         const i = state.items.findIndex((s) => s.ticker === action.payload.ticker);
         if (i !== -1) state.items[i] = { ...(state.items[i] as any), ...action.payload } as Stock;
+      })
+      .addCase(seedDetails, (state, action) => {
+        const { ticker, price, category } = action.payload;
+        state.detailsSeeds[ticker.toUpperCase()] = {
+          price,
+          category: (category ?? null) as Stock["category"] | null,
+          ts: Date.now(),
+        };
       });
   },
 });
@@ -335,3 +343,5 @@ export default stocksSlice.reducer;
 import type { RootState } from "./index";
 export const selectStocksState = (state: RootState) => state.stocks;
 export const selectVisibleStocks = (state: RootState) => state.stocks.items;
+export const selectSeedByTicker = (ticker: string) => (state: RootState) =>
+  state.stocks.detailsSeeds[ticker.toUpperCase()] || null;
