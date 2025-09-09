@@ -8,10 +8,9 @@ type SearchHit = { symbol: string; description?: string; type?: string };
 
 // ---- Caches & rate limiting ----
 const CACHE = new Map<string, { quote: Quote | null; ts: number }>(); // price cache by ORIGINAL symbol
-const RESOLVE_CACHE = new Map<string, string>();                       // original -> resolved finnhub symbol
+const RESOLVE_CACHE = new Map<string, string>();                    
 let GLOBAL_BACKOFF_UNTIL = 0;
 
-// ---- Tunables ----
 const FRESH_MS = 15_000;
 const PER_REQ_GAP_MS = 150;
 const GLOBAL_BACKOFF_MS = 30_000;
@@ -33,7 +32,6 @@ async function fetchQuote(sym: string, token: string): Promise<Quote | null> {
     if (r.status === 429) { GLOBAL_BACKOFF_UNTIL = Date.now() + GLOBAL_BACKOFF_MS; return null; }
     if (!r.ok) return null;
     const data = (await r.json()) as Quote;
-    // у Finnhub иногда c=0 — считаем это невалидным
     if (typeof data?.c !== "number" || !Number.isFinite(data.c) || data.c <= 0) return null;
     return data;
   } catch {
@@ -170,7 +168,6 @@ export default async function handler(req: any, res: any) {
       await Promise.all(Array.from({ length: Math.min(CONCURRENCY, toFetch.length) }, () => worker()));
     }
 
-    // Резолв через /search для непробитых
     const unresolved = !underBackoff ? symbols.filter(s => quotes[s] == null) : [];
 
     if (!underBackoff && unresolved.length) {

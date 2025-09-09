@@ -34,7 +34,6 @@ export const Home = () => {
     void dispatch(goToPage({ page1 }));
   }, [dispatch, page1]);
 
-  // После успешной загрузки новой страницы — мягкий скролл к началу карточек
   useEffect(() => {
     const prev = prevPageRef.current;
     const isPageChanged = prev !== null && prev !== page1;
@@ -44,7 +43,6 @@ export const Home = () => {
     if (status === "succeeded") prevPageRef.current = page1;
   }, [page1, status]);
 
-  // === ВАЖНО: триггерим прогрессивную гидрацию текущей страницы ===
   useEffect(() => {
     if (status === "succeeded" && items.length > 0) {
       // thunk сам прервётся, если pageEpoch изменится (страница переключится)
@@ -120,7 +118,6 @@ export const Home = () => {
             ))}
           </div>
 
-          {/* Пэйджер */}
           <div className={styles.moreRow}>
             {page1 > 1 && (
               <button className={styles.moreBtn} onClick={onPrev} disabled={status === "loading"}>
