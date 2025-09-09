@@ -68,28 +68,49 @@ async function fetchJSON<T>(url: string, noStore = true): Promise<T | null> {
     clearTimeout(to);
   }
 }
-
 async function getQuote(sym: string, token: string): Promise<Quote | null> {
   const now = Date.now();
   const hit = QUOTE_CACHE.get(sym);
-  if (hit && (now - hit.ts) <= Q_FRESH_MS) return hit.q ?? null;
+  if (hit && (now - hit.ts) <= Q_FRESH_MS && hit.q) return hit.q;
 
-  const data = await fetchJSON<Quote>(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${token}`);
-  const q = (typeof data?.c === "number" && data.c > 0) ? data : null;
-  QUOTE_CACHE.set(sym, { q, ts: Date.now() });
+  const tryFetch = async (): Promise<Quote | null> => {
+    const data = await fetchJSON<Quote>(`https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(sym)}&token=${token}`);
+    const q = (typeof data?.c === "number" && data.c > 0) ? data : null;
+    return q;
+  };
+
+  let q = await tryFetch();
+  if (!q && Date.now() >= GLOBAL_BACKOFF_UNTIL) {
+    // маленький ретрай
+    await sleep(120);
+    q = await tryFetch();
+  }
+
+  // кэшируем ТОЛЬКО валидные данные
+  if (q) QUOTE_CACHE.set(sym, { q, ts: Date.now() });
   return q;
 }
 
 async function getProfile(sym: string, token: string): Promise<Profile | null> {
   const now = Date.now();
   const hit = PROF_CACHE.get(sym);
-  if (hit && (now - hit.ts) <= P_FRESH_MS) return hit.p ?? null;
+  if (hit && (now - hit.ts) <= P_FRESH_MS && hit.p) return hit.p;
 
-  const data = await fetchJSON<Profile>(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${token}`);
-  const p = data ?? null;
-  PROF_CACHE.set(sym, { p, ts: Date.now() });
+  const tryFetch = async (): Promise<Profile | null> => {
+    const data = await fetchJSON<Profile>(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(sym)}&token=${token}`);
+    return data ?? null;
+  };
+
+  let p = await tryFetch();
+  if (!p && Date.now() >= GLOBAL_BACKOFF_UNTIL) {
+    await sleep(120);
+    p = await tryFetch();
+  }
+
+  if (p) PROF_CACHE.set(sym, { p, ts: Date.now() });
   return p;
 }
+
 
 export default async function handler(req: any, res: any) {
   try {

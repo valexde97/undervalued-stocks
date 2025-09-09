@@ -1,15 +1,15 @@
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
-import type { Stock, MarketCapBand } from "../types/stock";
+import type { Stock } from "../types/stock";
 import { loadFinviz } from "../api/loadBatch";
 import { fetchJSON } from "../utils/http";
 
-// ---- типы снапшота из /api/fh/snapshot-batch ----
+// ---- types ----
 type SnapshotItem = {
   ticker: string;
   name?: string | null;
   industry?: string | null;
   country?: string | null;
-  marketCapM?: number | null; // МЛН USD
+  marketCapM?: number | null;
   logo?: string | null;
 
   price?: number | null;
@@ -19,10 +19,9 @@ type SnapshotItem = {
   low?: number | null;
   prevClose?: number | null;
 };
-
 type SnapshotResponse = { items: SnapshotItem[]; serverTs?: number; backoffUntil?: number };
 
-// ---- состояние ----
+// ---- state ----
 export type StocksState = {
   items: Stock[];
   nextCache: Stock[] | null;
@@ -30,7 +29,8 @@ export type StocksState = {
   error?: string;
   currentPage: number; // 0-based
   hasMore: boolean;
-  pageEpoch: number;   // чтобы гасить гидрацию предыдущей страницы
+
+  pageEpoch: number;   // увеличиваем на каждую смену страницы
 };
 
 const initialState: StocksState = {
@@ -47,14 +47,14 @@ export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>
 
 function capMillions(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  return Math.min(v, 5_000_000); // safety: до 5 трлн
+  return Math.min(v, 5_000_000);
 }
 
-// Пороги: Small < 1B; Mid 1–10B; Large ≥ 10B
-function categoryByCap(capM?: number | null): MarketCapBand | null {
-  if (typeof capM !== "number") return null;
+function prettyCategoryByCap(capM?: number | null): Stock["category"] | undefined {
+  if (typeof capM !== "number") return undefined;
+  // (млн USD) — small / mid / large
   if (capM >= 10_000) return "large";
-  if (capM >= 1_000) return "mid";
+  if (capM >= 2_000) return "mid";
   return "small";
 }
 
@@ -71,8 +71,7 @@ function looksLikeNoise(s?: string | null) {
   if (!x) return false;
   return [
     "export","overview","valuation","financial","ownership","performance","technical",
-    "order by","any","index","signal","dividend yield","average volume","target price",
-    "ipo date","filters:"
+    "order by","any","index","signal","dividend yield","average volume","target price","ipo date","filters:",
   ].some((w) => x.includes(w));
 }
 function cleanField(v?: string | null, ticker?: string | null) {
@@ -93,7 +92,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
     out.push({
       ticker,
       name,
-      category: null,        // не хардкодим "small" — ждём снапшот
+      category: "small", // обновится после гидрации
       price: null,
       changePct: null,
 
@@ -105,7 +104,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       grossMargin: null,
       netMargin: null,
 
-      marketCap: null,       // МЛН USD
+      marketCap: null,
       marketCapText: null,
 
       sector: null,
@@ -129,7 +128,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
   return out;
 }
 
-// ---- Finviz страница ----
+// ---- finviz page ----
 export const fetchFinvizPage = createAsyncThunk<
   { page: number; stocks: Stock[]; hasMoreMeta: boolean },
   { page: number }
@@ -139,56 +138,120 @@ export const fetchFinvizPage = createAsyncThunk<
   return { page, stocks, hasMoreMeta: !!meta?.hasMore };
 });
 
-// ---- Прогрессивная гидрация (карточка за карточкой) ----
+// ---- прогрессивная гидрация с мульти-проходами ----
+/**
+ * Делаем до 3 проходов по текущей странице.
+ * На каждом проходе: шлём батчи по 4 тикера → патчим карточки сразу по приходу.
+ * Если сервер дал backoffUntil — ждём и продолжаем.
+ * Прерываемся, если сменился pageEpoch.
+ */
 export const hydratePageProgressively = createAsyncThunk<void, void, { state: { stocks: StocksState } }>(
   "stocks/hydratePageProgressively",
   async (_: void, { getState, dispatch }) => {
-    const epoch = getState().stocks.pageEpoch;
-    const tickers = getState().stocks.items.map((s) => s.ticker);
-    if (!tickers.length) return;
+    const startEpoch = getState().stocks.pageEpoch;
+    const allTickers = getState().stocks.items.map(s => s.ticker);
+    if (!allTickers.length) return;
 
-    const CHUNK = 1;
-    for (let i = 0; i < tickers.length; i += CHUNK) {
-      if (getState().stocks.pageEpoch !== epoch) break;
+    const MAX_PASSES = 3;
+    const CHUNK = 4;
 
-      const slice = tickers.slice(i, i + CHUNK);
-      const qs = encodeURIComponent(slice.join(","));
-      try {
-        const resp = await fetchJSON<SnapshotResponse>(`/api/fh/snapshot-batch?symbols=${qs}`, {
-          noStore: true,
-          timeoutMs: 20000,
-        });
+    // считаем заполненной карточку, если есть либо price, либо marketCap
+    const isFilled = (it: SnapshotItem) =>
+      (typeof it.price === "number" && Number.isFinite(it.price) && it.price > 0) ||
+      (typeof it.marketCapM === "number" && Number.isFinite(it.marketCapM) && it.marketCapM > 0);
 
-        if (getState().stocks.pageEpoch !== epoch) break;
+    const remaining = new Set(allTickers);
+
+    for (let pass = 0; pass < MAX_PASSES; pass++) {
+      if (getState().stocks.pageEpoch !== startEpoch) return;
+
+      const arr = Array.from(remaining);
+      if (!arr.length) break;
+
+      for (let i = 0; i < arr.length; i += CHUNK) {
+        if (getState().stocks.pageEpoch !== startEpoch) return;
+
+        const slice = arr.slice(i, i + CHUNK);
+        const qs = encodeURIComponent(slice.join(","));
+        let resp: SnapshotResponse | null = null;
+
+        try {
+          resp = await fetchJSON<SnapshotResponse>(`/api/fh/snapshot-batch?symbols=${qs}`, {
+            noStore: true, timeoutMs: 22000,
+          });
+        } catch { /* пропускаем этот батч, попробуем на следующем проходе */ }
+
+        if (!resp?.items?.length) continue;
+
+        // уважим backoff
+        if (resp.backoffUntil && resp.backoffUntil > Date.now()) {
+          const waitMs = Math.min(resp.backoffUntil - Date.now(), 3500);
+          await new Promise(r => setTimeout(r, waitMs));
+        }
 
         for (const it of resp.items) {
           const capM = capMillions(it.marketCapM ?? null);
-          const patch: Partial<Stock> & { ticker: string } = {
+          const category = prettyCategoryByCap(capM);
+
+          const patch: any = {
             ticker: it.ticker,
             price: it.price ?? null,
             changePct: it.changePct ?? null,
             ...(it.open != null ? { open: it.open } : {}),
             ...(it.high != null ? { high: it.high } : {}),
-            ...(it.low != null ? { low: it.low } : {}),
+            ...(it.low  != null ? { low:  it.low  } : {}),
             ...(it.prevClose != null ? { prevClose: it.prevClose } : {}),
             ...(typeof it.name === "string" && it.name.trim() ? { name: it.name.trim() } : {}),
             ...(typeof it.industry === "string" ? { industry: it.industry } : {}),
-            ...(typeof it.country === "string" ? { country: it.country } : {}),
+            ...(typeof it.country  === "string" ? { country:  it.country  } : {}),
             ...(typeof capM === "number" ? { marketCap: capM } : {}),
-            category: categoryByCap(capM),
           };
-
-          if ((it as any).logo) (patch as any).logo = (it as any).logo;
+          if (category) patch.category = category;
+          if ((it as any).logo) patch.logo = (it as any).logo;
 
           dispatch(mergeStockPatch(patch));
+
+          if (isFilled(it)) remaining.delete(it.ticker);
         }
-      } catch (e: any) {
-        if (e?.status === 429) await new Promise((r) => setTimeout(r, 1200));
+
+        // небольшая рассинхронизация, чтобы не врезаться в лимиты
+        await new Promise(r => setTimeout(r, 120));
+      }
+
+      // между проходами — короткая пауза
+      if (remaining.size && pass + 1 < MAX_PASSES) {
+        await new Promise(r => setTimeout(r, 300));
       }
     }
   }
 );
 
+// ---- навигация ----
+export const goToPage = createAsyncThunk<
+  { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
+  { page1: number }
+>("stocks/goToPage", async ({ page1 }, { dispatch }) => {
+  const page0 = Math.max(0, (page1 | 0) - 1);
+
+  const { page: p0, stocks: s0, hasMoreMeta: more0 } =
+    await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
+
+  // префетч сырой следующей
+  let nextCache: Stock[] | null = null;
+  let hasMore = !!more0;
+  if (more0) {
+    try {
+      const { stocks: s1, hasMoreMeta: more1 } =
+        await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
+      nextCache = s1;
+      hasMore = more1 || s1.length > 0;
+    } catch { /* ignore */ }
+  }
+
+  return { items: s0, nextCache, page: p0, hasMore };
+});
+
+// ---- совместимость: details-страница просит этот thunk ----
 export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }>(
   "stocks/prioritizeDetailsTicker",
   async ({ ticker }, { dispatch }) => {
@@ -199,13 +262,11 @@ export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }
       `/api/fh/snapshot-batch?symbols=${encodeURIComponent(t)}`,
       { noStore: true, timeoutMs: 20000 }
     );
-
     const it = resp.items?.[0];
     if (!it) return;
 
-    const capM = (typeof it.marketCapM === "number" && Number.isFinite(it.marketCapM) && it.marketCapM > 0)
-      ? Math.min(it.marketCapM, 5_000_000)
-      : null;
+    const capM = capMillions(it.marketCapM ?? null);
+    const category = prettyCategoryByCap(capM);
 
     const patch: any = {
       ticker: it.ticker,
@@ -219,42 +280,13 @@ export const prioritizeDetailsTicker = createAsyncThunk<void, { ticker: string }
       ...(typeof it.industry === "string" ? { industry: it.industry } : {}),
       ...(typeof it.country  === "string" ? { country:  it.country  } : {}),
       ...(typeof capM === "number" ? { marketCap: capM } : {}),
-      category: capM == null ? null : (capM >= 10_000 ? "large" : capM >= 1_000 ? "mid" : "small"),
     };
+    if (category) patch.category = category;
     if ((it as any).logo) patch.logo = (it as any).logo;
 
     dispatch(mergeStockPatch(patch));
   }
 );
-
-
-// ---- Навигация ----
-export const goToPage = createAsyncThunk<
-  { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
-  { page1: number }
->("stocks/goToPage", async ({ page1 }, { dispatch }) => {
-  const page0 = Math.max(0, (page1 | 0) - 1);
-
-  // текущая страница — сырые тикеры/имена
-  const { page: p0, stocks: s0, hasMoreMeta: more0 } =
-    await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
-
-  // префетч следующей сырой страницы
-  let nextCache: Stock[] | null = null;
-  let hasMore = !!more0;
-  if (more0) {
-    try {
-      const { stocks: s1, hasMoreMeta: more1 } =
-        await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
-      nextCache = s1;
-      hasMore = more1 || s1.length > 0;
-    } catch {
-      nextCache = null;
-    }
-  }
-
-  return { items: s0, nextCache, page: p0, hasMore };
-});
 
 // ---- slice ----
 const stocksSlice = createSlice({
@@ -281,7 +313,7 @@ const stocksSlice = createSlice({
         state.status = "succeeded";
         state.items = action.payload.items;
         state.nextCache = action.payload.nextCache;
-        state.currentPage = action.payload.page; // 0-based
+        state.currentPage = action.payload.page;
         state.hasMore = action.payload.hasMore;
         state.pageEpoch += 1; // новая страница → новая эпоха
       })
@@ -299,7 +331,7 @@ const stocksSlice = createSlice({
 export const { resetPager } = stocksSlice.actions;
 export default stocksSlice.reducer;
 
-// ---- selectors ----
+// selectors
 import type { RootState } from "./index";
 export const selectStocksState = (state: RootState) => state.stocks;
 export const selectVisibleStocks = (state: RootState) => state.stocks.items;
