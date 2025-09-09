@@ -4,16 +4,13 @@ import type { Stock } from "../types/stock";
 import { loadFinviz } from "../api/loadBatch";
 import { fetchJSON } from "../utils/http";
 
-// Finnhub quote (локально)
-type Quote = { c?: number; o?: number; h?: number; l?: number; pc?: number; dp?: number; d?: number };
-
-// Снапшот из /api/fh/snapshot-batch
+// ---- типы снапшота из /api/fh/snapshot-batch ----
 type SnapshotItem = {
   ticker: string;
   name?: string | null;
   industry?: string | null;
   country?: string | null;
-  marketCapM?: number | null;
+  marketCapM?: number | null; // МЛН USD
   logo?: string | null;
 
   price?: number | null;
@@ -26,7 +23,7 @@ type SnapshotItem = {
 
 type SnapshotResponse = { items: SnapshotItem[]; serverTs?: number; backoffUntil?: number };
 
-// ---------- state ----------
+// ---- состояние ----
 export type StocksState = {
   items: Stock[];
   nextCache: Stock[] | null;
@@ -34,7 +31,7 @@ export type StocksState = {
   error?: string;
   currentPage: number; // 0-based
   hasMore: boolean;
-  pageEpoch: number; // изменяем при каждой смене страницы, чтобы отменять «старую» гидрацию
+  pageEpoch: number;   // чтобы гасить гидрацию предыдущей страницы
 };
 
 const initialState: StocksState = {
@@ -46,18 +43,19 @@ const initialState: StocksState = {
   pageEpoch: 0,
 };
 
-// ---------- helpers ----------
+// ---- helpers ----
 export const mergeStockPatch = createAction<{ ticker: string } & Partial<Stock>>("stocks/mergeStockPatch");
 
 function capMillions(v?: number | null): number | null {
   if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return null;
-  return Math.min(v, 5_000_000); // защита: до 5 трлн
+  return Math.min(v, 5_000_000); // safety: до 5 трлн
 }
 
-function categoryByCap(capM?: number | null): Stock["category"] | null {
+// Пороги: Small < 1B; Mid 1–10B; Large ≥ 10B
+function categoryByCap(capM?: number | null): Stock["category"] {
   if (typeof capM !== "number") return null;
-  if (capM >= 10000) return "large";
-  if (capM >= 2000) return "mid";
+  if (capM >= 10_000) return "large";
+  if (capM >= 1_000) return "mid";
   return "small";
 }
 
@@ -73,22 +71,9 @@ function looksLikeNoise(s?: string | null) {
   const x = (s || "").trim().toLowerCase();
   if (!x) return false;
   return [
-    "export",
-    "overview",
-    "valuation",
-    "financial",
-    "ownership",
-    "performance",
-    "technical",
-    "order by",
-    "any",
-    "index",
-    "signal",
-    "dividend yield",
-    "average volume",
-    "target price",
-    "ipo date",
-    "filters:",
+    "export","overview","valuation","financial","ownership","performance","technical",
+    "order by","any","index","signal","dividend yield","average volume","target price",
+    "ipo date","filters:"
   ].some((w) => x.includes(w));
 }
 function cleanField(v?: string | null, ticker?: string | null) {
@@ -109,7 +94,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
     out.push({
       ticker,
       name,
-      category: null, // << не хардкодим; появится после снапшота по marketCap
+      category: null,        // не хардкодим "small" — ждём снапшот
       price: null,
       changePct: null,
 
@@ -121,7 +106,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
       grossMargin: null,
       netMargin: null,
 
-      marketCap: null,       // всегда в МЛН USD
+      marketCap: null,       // МЛН USD
       marketCapText: null,
 
       sector: null,
@@ -145,7 +130,7 @@ function mapFinvizItemsToStocks(rows: any[]): Stock[] {
   return out;
 }
 
-// ---------- Finviz page ----------
+// ---- Finviz страница ----
 export const fetchFinvizPage = createAsyncThunk<
   { page: number; stocks: Stock[]; hasMoreMeta: boolean },
   { page: number }
@@ -155,7 +140,7 @@ export const fetchFinvizPage = createAsyncThunk<
   return { page, stocks, hasMoreMeta: !!meta?.hasMore };
 });
 
-// ---------- Progressive hydration (1-by-1) ----------
+// ---- Прогрессивная гидрация (карточка за карточкой) ----
 export const hydratePageProgressively = createAsyncThunk<void, void, { state: { stocks: StocksState } }>(
   "stocks/hydratePageProgressively",
   async (_: void, { getState, dispatch }) => {
@@ -164,9 +149,8 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
     if (!tickers.length) return;
 
     const CHUNK = 1;
-
     for (let i = 0; i < tickers.length; i += CHUNK) {
-      if (getState().stocks.pageEpoch !== epoch) break; // страница переключилась — выходим
+      if (getState().stocks.pageEpoch !== epoch) break;
 
       const slice = tickers.slice(i, i + CHUNK);
       const qs = encodeURIComponent(slice.join(","));
@@ -188,43 +172,42 @@ export const hydratePageProgressively = createAsyncThunk<void, void, { state: { 
             ...(it.high != null ? { high: it.high } : {}),
             ...(it.low != null ? { low: it.low } : {}),
             ...(it.prevClose != null ? { prevClose: it.prevClose } : {}),
-
             ...(typeof it.name === "string" && it.name.trim() ? { name: it.name.trim() } : {}),
             ...(typeof it.industry === "string" ? { industry: it.industry } : {}),
             ...(typeof it.country === "string" ? { country: it.country } : {}),
             ...(typeof capM === "number" ? { marketCap: capM } : {}),
+            category: categoryByCap(capM),
           };
 
-          const cat = categoryByCap(capM);
-          if (cat) (patch as any).category = cat;
-          if (it.logo) (patch as any).logo = it.logo;
+          if ((it as any).logo) (patch as any).logo = (it as any).logo;
 
           dispatch(mergeStockPatch(patch));
         }
       } catch (e: any) {
-        if (e?.status === 429) {
-          await new Promise((r) => setTimeout(r, 1200));
-        }
+        if (e?.status === 429) await new Promise((r) => setTimeout(r, 1200));
       }
     }
   }
 );
 
-// ---------- goToPage ----------
+// ---- Навигация ----
 export const goToPage = createAsyncThunk<
   { items: Stock[]; nextCache: Stock[] | null; page: number; hasMore: boolean },
   { page1: number }
 >("stocks/goToPage", async ({ page1 }, { dispatch }) => {
   const page0 = Math.max(0, (page1 | 0) - 1);
 
-  const { page: p0, stocks: s0, hasMoreMeta: more0 } = await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
+  // текущая страница — сырые тикеры/имена
+  const { page: p0, stocks: s0, hasMoreMeta: more0 } =
+    await (dispatch as any)(fetchFinvizPage({ page: page0 })).unwrap();
 
-  // Префетч сырой следующей
+  // префетч следующей сырой страницы
   let nextCache: Stock[] | null = null;
   let hasMore = !!more0;
   if (more0) {
     try {
-      const { stocks: s1, hasMoreMeta: more1 } = await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
+      const { stocks: s1, hasMoreMeta: more1 } =
+        await (dispatch as any)(fetchFinvizPage({ page: p0 + 1 })).unwrap();
       nextCache = s1;
       hasMore = more1 || s1.length > 0;
     } catch {
@@ -235,7 +218,7 @@ export const goToPage = createAsyncThunk<
   return { items: s0, nextCache, page: p0, hasMore };
 });
 
-// ---------- slice ----------
+// ---- slice ----
 const stocksSlice = createSlice({
   name: "stocks",
   initialState,
@@ -258,11 +241,11 @@ const stocksSlice = createSlice({
       })
       .addCase(goToPage.fulfilled, (state, action) => {
         state.status = "succeeded";
-        state.items = action.payload.items;      // мгновенно показываем «пустые» карточки
+        state.items = action.payload.items;
         state.nextCache = action.payload.nextCache;
-        state.currentPage = action.payload.page;
+        state.currentPage = action.payload.page; // 0-based
         state.hasMore = action.payload.hasMore;
-        state.pageEpoch += 1;                    // новая страница => новая эпоха
+        state.pageEpoch += 1; // новая страница → новая эпоха
       })
       .addCase(goToPage.rejected, (state, action) => {
         state.status = "failed";
@@ -278,7 +261,7 @@ const stocksSlice = createSlice({
 export const { resetPager } = stocksSlice.actions;
 export default stocksSlice.reducer;
 
-// -------- selectors --------
+// ---- selectors ----
 import type { RootState } from "./index";
 export const selectStocksState = (state: RootState) => state.stocks;
 export const selectVisibleStocks = (state: RootState) => state.stocks.items;
