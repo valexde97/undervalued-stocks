@@ -34,6 +34,8 @@ export const Home = () => {
     void dispatch(goToPage({ page1 }));
   }, [dispatch, page1]);
 
+  
+
   useEffect(() => {
     const prev = prevPageRef.current;
     const isPageChanged = prev !== null && prev !== page1;
@@ -57,7 +59,15 @@ export const Home = () => {
   })();
 }, [dispatch, page1]);
 
+useEffect(() => {
+  void dispatch(goToPage({ page1 }));
+}, [dispatch, page1]);
 
+useEffect(() => {
+  if (status === "succeeded") {
+    void dispatch(hydratePageProgressively());
+  }
+}, [dispatch, status, page1]);
   const visibleStocks = useMemo<Stock[]>(() => items, [items]);
   const mkt = getMarketSession();
 

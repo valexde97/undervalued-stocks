@@ -1,6 +1,5 @@
-// src/store/stocksSlice.ts
 import { createAction, createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
-import type { Stock } from "../types/stock";
+import type { Stock, MarketCapBand } from "../types/stock";
 import { loadFinviz } from "../api/loadBatch";
 import { fetchJSON } from "../utils/http";
 
@@ -52,7 +51,7 @@ function capMillions(v?: number | null): number | null {
 }
 
 // Пороги: Small < 1B; Mid 1–10B; Large ≥ 10B
-function categoryByCap(capM?: number | null): Stock["category"] {
+function categoryByCap(capM?: number | null): MarketCapBand | null {
   if (typeof capM !== "number") return null;
   if (capM >= 10_000) return "large";
   if (capM >= 1_000) return "mid";

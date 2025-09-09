@@ -1,18 +1,19 @@
-// src/types/stock.ts
 export type MarketCapBand = "small" | "mid" | "large";
 
+/**
+ * category теперь может быть null до прихода снапшота.
+ * marketCap — всегда в МИЛЛИОНАХ USD (client computed).
+ */
 export type Stock = {
   ticker: string;
   name: string;
-
-  // Категория рассчитывается по marketCap (в МИЛЛИОНАХ USD) — может быть неизвестна до снапшота
   category: MarketCapBand | null;
 
-  // Snapshot (цена/динамика)
+  // Snapshot for card
   price: number | null;
   changePct?: number | null;
 
-  // Базовые метрики (детали; на карточке не обязательны)
+  // (детальные метрики держим вне карточки; оставлены для совместимости)
   pe?: number | null;
   pb?: number | null;
   ps?: number | null;
@@ -21,10 +22,8 @@ export type Stock = {
   grossMargin?: number | null;
   netMargin?: number | null;
 
-  // Всегда в МИЛЛИОНАХ USD
-  marketCap?: number | null;     // numeric, млн USD
-  marketCapText?: string | null; // запасной текст (если нужен)
-
+  marketCap?: number | null;     // numeric in millions (client computed)
+  marketCapText?: string | null; // raw text from Finviz if есть
   sector?: string | null;
   industry?: string | null;
   country?: string | null;
@@ -32,12 +31,12 @@ export type Stock = {
   beta?: number | null;
   dividendYield?: number | null; // %
 
-  // Снимки Finviz (если используете)
+  // Snapshots taken directly from Finviz
   peSnapshot?: number | null;
   psSnapshot?: number | null;
   pbSnapshot?: number | null;
 
-  // Детали
+  // Optional details (Finnhub)
   listedAt?: Date;
 
   potentialScore?: number | null;
