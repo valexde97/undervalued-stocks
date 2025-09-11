@@ -17,6 +17,10 @@ import RawMetricsTable from "../components/stock/RawMetricsTable";
 import ChartPlaceholder from "../components/stock/ChartPlaceholder";
 import AboutSection from "../components/stock/AboutSection";
 
+// 🔽 NEW: News
+import NewsPanel from "../components/news/NewsPanel";
+import { fetchNewsForSymbol } from "..//store/newsSlice";
+
 function prettyCategory(cat?: string | null) {
   if (!cat) return "—";
   const s = String(cat).toLowerCase();
@@ -60,6 +64,12 @@ export const StockDetails = () => {
     return fromFinnhub || fromStock || fromSec || null;
   }, [p2?.name, stock?.name, secFacts?.entityName]);
 
+  // 🔽 NEW: load news immediately on mount & ticker change
+  useEffect(() => {
+    if (!upper) return;
+    void dispatch(fetchNewsForSymbol({ symbol: upper, lookbackDays: 14, limit: 20 }));
+  }, [upper, dispatch]);
+
   return (
     <motion.div className={styles.wrapper} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <h1 className={styles.title}>
@@ -83,14 +93,21 @@ export const StockDetails = () => {
         />
 
         {/* RIGHT: Chart */}
-        <ChartPlaceholder />
+        <div>
+          <ChartPlaceholder />
+
+          {/* 🔽 NEW: News under chart */}
+          <div style={{ marginTop: 16 }}>
+            <NewsPanel symbol={upper} />
+          </div>
+        </div>
       </div>
 
       {/* RAW METRICS */}
       <RawMetricsTable metric={metric} loading={metricsLoading} error={metricsError} />
 
       {/* ABOUT */}
-<AboutSection symbol={upper} metric={metric} metricsLoading={metricsLoading} priceSeed={priceSeed} />
+      <AboutSection symbol={upper} metric={metric} metricsLoading={metricsLoading} priceSeed={priceSeed} />
     </motion.div>
   );
 };
