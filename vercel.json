@@ -4,7 +4,13 @@
   "buildCommand": "vite build",
   "routes": [
     { "handle": "filesystem" },
-    { "src": "/api/(.*)", "dest": "/api/$1" },
+
+    { "src": "/api/finviz\\.ts", "dest": "/api/finviz" },
+    { "src": "/api/fh/(.*)",      "dest": "/api/fh?op=$1" },
+    { "src": "/api/sec/(.*)",     "dest": "/api/sec?op=$1" },
+    { "src": "/api/alpha/(.*)",   "dest": "/api/alpha?op=$1" },
+    { "src": "/api/llm/(.*)",     "dest": "/api/llm?op=$1" },
+
     { "src": "/@(.*)", "dest": "/@$1" },
     { "src": "/__vite_ping", "dest": "/__vite_ping" },
     { "src": "/src/(.*)", "dest": "/src/$1" },

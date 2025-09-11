@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import finvizHandler from "../server/handlers/finviz";
+import env from "../server/handlers/debug/env";
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  return finvizHandler(req as any, res as any);
+  return env(req as any, res as any);
 }

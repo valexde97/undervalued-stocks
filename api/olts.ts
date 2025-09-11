@@ -1,7 +1,7 @@
-// /api/olts.ts
+// Unified multi-op endpoint. Keep client API: POST /api/olts with { tasks: {key:{op,params}}, concurrency? }
 export const runtime = "nodejs";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-// ---------- утилиты (без геттеров — совместимо со старым target) ----------
 function sendJSON(res: any, code: number, obj: any) {
   res.statusCode = code;
   res.setHeader("Content-Type", "application/json");
@@ -9,11 +9,25 @@ function sendJSON(res: any, code: number, obj: any) {
 }
 
 class MockRequest {
-  url: string; method: string; headers: Record<string, string>;
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  // добавляем, чтобы серверные хендлеры могли читать так же, как из VercelRequest
+  query: Record<string, any> = {};
+
   constructor(url: string, method: string = "GET", headers: Record<string, string> = {}) {
-    this.url = url; this.method = method; this.headers = headers;
+    this.url = url;
+    this.method = method;
+    this.headers = headers;
+    try {
+      const u = new URL(url, "http://local");
+      this.query = Object.fromEntries(u.searchParams.entries());
+    } catch {
+      this.query = {};
+    }
   }
 }
+
 
 class MockResponse {
   statusCode = 200;
@@ -25,21 +39,12 @@ class MockResponse {
   getHeaders() { return Object.assign({}, this._headers); }
   status(code: number) { this.statusCode = code; return this; }
   json(obj: any) { this.setHeader("Content-Type", "application/json"); this._body = JSON.stringify(obj); this._ended = true; }
-  end(chunk?: any) {
-    if (typeof chunk !== "undefined") {
-      this._body = typeof chunk === "string" ? chunk : (Buffer.isBuffer(chunk) ? chunk : String(chunk));
-    }
-    this._ended = true;
-  }
+  end(chunk?: any) { if (typeof chunk !== "undefined") { this._body = typeof chunk === "string" ? chunk : (Buffer.isBuffer(chunk) ? chunk : String(chunk)); } this._ended = true; }
   async result() {
     const bodyStr = Buffer.isBuffer(this._body) ? this._body.toString("utf-8") : String(this._body || "");
     let data: any = null;
     const ct = this._headers["Content-Type"] || this._headers["content-type"] || "";
-    if (/json/i.test(ct) && bodyStr) {
-      try { data = JSON.parse(bodyStr); } catch { data = bodyStr; }
-    } else {
-      data = bodyStr;
-    }
+    if (/json/i.test(ct) && bodyStr) { try { data = JSON.parse(bodyStr); } catch { data = bodyStr; } } else { data = bodyStr; }
     return { status: this.statusCode, headers: this.getHeaders(), data };
   }
 }
@@ -48,7 +53,7 @@ function qs(params?: Record<string, any>): string {
   if (!params) return "";
   const sp = new URLSearchParams();
   for (const k in params) {
-    const v = params[k];
+    const v = (params as any)[k];
     if (typeof v === "undefined" || v === null) continue;
     sp.set(k, String(v));
   }
@@ -69,27 +74,52 @@ async function runWithLimit<T>(items: T[], limit: number, worker: (item: T) => P
   const n = Math.max(1, Math.min(limit, q.length || 1));
   const workers: Promise<void>[] = [];
   for (let i = 0; i < n; i++) {
-    workers.push((async () => {
-      while (q.length) {
-        const it = q.shift() as T;
-        await worker(it);
-      }
-    })());
+    workers.push((async () => { while (q.length) { const it = q.shift() as T; await worker(it); } })());
   }
   await Promise.all(workers);
 }
 
-// ---------- импорт существующих хендлеров (можем расширять позже) ----------
-import finvizHandler from "./finviz";
-// при необходимости добавим и остальные: quotes-batch, metrics-batch, profile2 и т.д.
+// Import server handlers (not Serverless routes)
+import finviz from "../server/handlers/finviz";
+import fh_quotesBatch from "../server/handlers/fh/quotes-batch";
+import fh_quote from "../server/handlers/fh/quote";
+import fh_metrics from "../server/handlers/fh/metrics";
+import fh_metricsBatch from "../server/handlers/fh/metrics-batch";
+import fh_profile2 from "../server/handlers/fh/profile2";
+import fh_news from "../server/handlers/fh/news";
+import fh_marketStatus from "../server/handlers/fh/marketStatus";
+import fh_snapshotBatch from "../server/handlers/fh/snapshot-batch";
+import sec_companyFacts from "../server/handlers/sec/company-facts";
+import llm_commentary from "../server/handlers/llm/commentary";
+import llm_diag from "../server/handlers/llm/_diag";
+import alpha_overview from "../server/handlers/alpha/overwiev";
+import av_overview from "../server/handlers/av/overview";
 
-// ---------- реестр операций ----------
-const OPS: Record<string, { handler: (req:any,res:any)=>any, path: string, allow?: string[], fixed?: Record<string,any> }> = {
-  "finviz.default": { handler: finvizHandler as any, path: "/api/finviz", allow: ["page","f","order","min"] },
+type OpDef = { handler: (req:any,res:any)=>any, path: string, allow?: string[], fixed?: Record<string,any> };
+const OPS: Record<string, OpDef> = {
+  "finviz.default": { handler: finviz as any, path: "/api/finviz", allow: ["page","f","order","min","mode","limit","o"] },
+
+  "fh.quote": { handler: fh_quote as any, path: "/api/fh?op=quote", allow: ["symbol"] },
+  "fh.quotes-batch": { handler: fh_quotesBatch as any, path: "/api/fh?op=quotes-batch", allow: ["symbols"] },
+  "fh.metrics": { handler: fh_metrics as any, path: "/api/fh?op=metrics", allow: ["symbol"] },
+  "fh.metrics-batch": { handler: fh_metricsBatch as any, path: "/api/fh?op=metrics-batch", allow: ["symbols"] },
+  "fh.profile2": { handler: fh_profile2 as any, path: "/api/fh?op=profile2", allow: ["symbol"] },
+  // ВАЖНО: разрешаем category для новостей
+  "fh.news": { handler: fh_news as any, path: "/api/fh?op=news", allow: ["symbol","from","to","category"] },
+  "fh.marketStatus": { handler: fh_marketStatus as any, path: "/api/fh?op=marketStatus" },
+  "fh.snapshot-batch": { handler: fh_snapshotBatch as any, path: "/api/fh?op=snapshot-batch", allow: ["symbols"] },
+
+  "sec.company-facts": { handler: sec_companyFacts as any, path: "/api/sec?op=company-facts", allow: ["ticker","symbol"] },
+
+  "llm.commentary": { handler: llm_commentary as any, path: "/api/llm?op=commentary" },
+  "llm.diag": { handler: llm_diag as any, path: "/api/llm?op=diag" },
+
+  "alpha.overview": { handler: alpha_overview as any, path: "/api/alpha?op=alpha-overview", allow: ["symbol"] },
+  "av.overview": { handler: av_overview as any, path: "/api/alpha?op=av-overview", allow: ["symbol"] },
 };
 
-// ---------- сам обработчик /api/olts ----------
-export default async function handler(req: any, res: any) {
+
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     const method = req.method || "GET";
 
@@ -98,8 +128,7 @@ export default async function handler(req: any, res: any) {
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
       res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-      res.statusCode = 204;
-      return res.end();
+      res.statusCode = 204; res.end(); return;
     } else {
       res.setHeader("Access-Control-Allow-Origin", "*");
     }
@@ -107,11 +136,9 @@ export default async function handler(req: any, res: any) {
     if (method === "GET") {
       return sendJSON(res, 200, { ok: true, note: "POST tasks to this endpoint", supportedOps: Object.keys(OPS) });
     }
-    if (method !== "POST") {
-      return sendJSON(res, 405, { ok: false, error: "Method Not Allowed" });
-    }
+    if (method !== "POST") return sendJSON(res, 405, { ok: false, error: "Method Not Allowed" });
 
-    // читаем тело
+    // read body
     let buf = "";
     await new Promise<void>((r) => { req.on("data", (c: any) => { buf += c; }); req.on("end", () => r()); });
     const payload = buf ? JSON.parse(buf) : {};
