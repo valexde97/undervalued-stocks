@@ -94,7 +94,6 @@ export const Home = () => {
             <NewsMini />
           </div>
           <aside className={styles.sideCol}>
-
             {mkt.isOpen ? <TopGainers /> : <MarketClosedCard />}
           </aside>
         </section>
