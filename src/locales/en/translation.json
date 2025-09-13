@@ -67,7 +67,76 @@
     },
     "notes": "These are mostly small-cap companies with high growth potential. The list is sorted by increasing undervaluation based on P/E.",
     "frontendOnly": "This is the front-end version and works exclusively with public APIs. To unlock the full potential, use the version with a connected back end."
+  },
+  "aboutPage": {
+    "title": "About Undervalued Stocks App",
+    "lead": "A research-first frontend to surface potentially undervalued stocks. We use open/public APIs only and respect their terms.",
+    "meta": {
+      "frontendOnly": "Frontend-only build",
+      "version": "Version"
+    },
+    "features": {
+      "title": "What’s included now",
+      "finvizTitle": "Finviz-first cards",
+      "finvizText": "Home shows stocks from Finviz screening. Cards render instantly with lightweight fields.",
+      "prefetchTitle": "Background prefetch (up to 200)",
+      "prefetchText": "After a page loads, we progressively prefetch next pages in the background until ~200 tickers are ready.",
+      "detailsTitle": "On-demand details",
+      "detailsText": "“View Details” pulls live quotes and a lightweight profile on demand.",
+      "newsTitle": "News & Market context",
+      "newsText": "Compact news column plus a side panel: Top Gainers when the market is open, a market-closed card otherwise.",
+      "favTitle": "Favorites",
+      "favText": "Star tickers to keep them handy while browsing multiple pages.",
+      "uiTitle": "Clean UI & performance",
+      "uiText": "Modern grid, skeletons for instant feedback, memoized cards, and gentle animations."
+    },
+    "sources": {
+      "title": "APIs & Data Sources",
+      "finviz": {
+        "type": "Screener / listings",
+        "text": "Primary source for the home-page universe and initial card fields (tickers, names, basic attributes)."
+      },
+      "finnhub": {
+        "type": "Profiles, quotes, search",
+        "text": "Used for live quotes, lightweight profiles, and universal search by ticker/company."
+      },
+      "sec": {
+        "type": "Public filings",
+        "text": "Public US filings accessed programmatically for factual checkpoints where applicable."
+      },
+      "candles": {
+        "name": "Price candles (fallback chain)",
+        "type": "Finnhub → Alpha Vantage → Yahoo → Stooq",
+        "text": "Historical OHLC retrieval uses a resilient chain to avoid hard failures; falls back safely."
+      },
+      "note": "We use only open/public endpoints and do not redistribute proprietary content. All trademarks belong to their owners."
+    },
+    "legal": {
+      "title": "Legal & Compliance",
+      "openStrong": "Open sources only.",
+      "openText": "We fetch data from publicly available APIs and respect each provider’s terms and fair-use limits.",
+      "copyrightStrong": "No copyrighted redistribution.",
+      "copyrightText": "We don’t mirror, sell, or republish proprietary data; caches are transient and UX-bound.",
+      "naStrong": "Not investment advice.",
+      "naText": "The app is for research/education only and does not constitute financial advice.",
+      "attrStrong": "Attribution.",
+      "attrText": "Company names, tickers, logos, and marks are used nominatively to identify securities and sources.",
+      "privacyStrong": "Privacy.",
+      "privacyText": "We don’t collect personal financial data. API keys live in environment variables."
+    },
+    "roadmap": {
+      "title": "Roadmap snapshot",
+      "filtersTitle": "Filter panel & search UX",
+      "filtersText": "Advanced filters, saved views, and richer symbol suggestions.",
+      "detailsTitle": "Details page expansions",
+      "detailsText": "More fundamentals, risk flags, blended fair-value heuristics.",
+      "perfTitle": "Performance & caching",
+      "perfText": "Prefetch tuning, smarter concurrency, and graceful back-offs."
+    },
+    "stack": {
+      "title": "Tech stack"
+    },
+    "footer": "Have ideas or found an issue? We’d love your feedback."
   }
 }
-
   
