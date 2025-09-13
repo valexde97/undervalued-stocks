@@ -1,12 +1,14 @@
 import { configureStore } from "@reduxjs/toolkit";
 import stocksReducer from "./stocksSlice";
 import newsReducer from "./newsSlice";
+import searchReducer from "./searchSlice";
 import { TypedUseSelectorHook, useDispatch, useSelector } from "react-redux";
 
 export const store = configureStore({
   reducer: {
     stocks: stocksReducer,
     news: newsReducer,
+    search: searchReducer,
   },
 });
 

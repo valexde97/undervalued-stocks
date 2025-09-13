@@ -1,0 +1,40 @@
+{
+  "id": "default-v1",
+  "version": "1.0",
+  "rules": [
+    {
+      "id": "rocket-breakout",
+      "name": "Rocket Breakout",
+      "conditions": [
+        {"feature":"close_vs_52w_high_pct","op":">=","value":0}, 
+        {"feature":"vol_to_50d","op":">=","value":2.0},
+        {"feature":"rs_new_high","op":"==","value":1},
+        {"feature":"close_vs_sma50","op":">=","value":0},
+        {"feature":"sma150_slope","op":">","value":0}
+      ],
+      "all": true
+    },
+    {
+      "id": "value-improving",
+      "name": "Undervalued + Improving",
+      "conditions": [
+        {"feature":"pb","op":"<=","value":1.0},
+        {"feature":"ps","op":"<=","value":1.0},
+        {"feature":"ttm_net_margin_trend","op":">","value":0},
+        {"feature":"fcf_margin_trend","op":">","value":0},
+        {"feature":"close_vs_sma150","op":">=","value":0}
+      ],
+      "all": true
+    },
+    {
+      "id": "mean-reversion",
+      "name": "Mean Reversion",
+      "conditions": [
+        {"feature":"rsi14","op":"<=","value":30},
+        {"feature":"ema21_reclaim","op":"==","value":1},
+        {"feature":"vol_to_50d","op":">=","value":1.5}
+      ],
+      "all": true
+    }
+  ]
+}

@@ -1,12 +1,14 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Skeleton from "react-loading-skeleton";
 import "react-loading-skeleton/dist/skeleton.css";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { useAppDispatch, useAppSelector } from "../store"; // важно: импорт из ../store
+import { useAppDispatch, useAppSelector } from "../store";
 import { goToPage, hydratePageProgressively } from "../store/stocksSlice";
 import type { Stock } from "../types/stock";
+
+import { selectSearch, setQuery, clearResult, searchByTickerOrName } from "../store/searchSlice";
 
 import CryptoMarquee from "../components/CryptoMarquee";
 import NewsMini from "../components/NewsMini";
@@ -25,6 +27,10 @@ export const Home = () => {
 
   const page1 = Math.max(1, Number(params.page ?? "1") || 1);
   const { items, status, hasMore, pageEpoch } = useAppSelector((s) => s.stocks);
+
+  // === SEARCH state ===
+  const search = useAppSelector(selectSearch);
+  const [localQuery, setLocalQuery] = useState(search.query || "");
 
   // якорь начала карточек
   const cardsTopRef = useRef<HTMLDivElement | null>(null);
@@ -51,7 +57,6 @@ export const Home = () => {
     if (status !== "succeeded") return;
     if (hydratedEpochRef.current === pageEpoch) return;
     hydratedEpochRef.current = pageEpoch;
-    // запускаем прогрессивную гидрацию
     void dispatch(hydratePageProgressively());
   }, [status, pageEpoch, dispatch]);
 
@@ -61,10 +66,27 @@ export const Home = () => {
   const onPrev = () => { if (page1 > 1) navigate(`/${page1 - 1}`); };
   const onNext = () => { if (hasMore) navigate(`/${page1 + 1}`); };
 
+  // === SEARCH handlers ===
+  const onSubmitSearch = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const q = localQuery.trim();
+    if (!q) {
+      dispatch(clearResult());
+      return;
+    }
+    dispatch(setQuery(q));
+    void dispatch(searchByTickerOrName({ query: q }));
+  };
+
+  const onClearSearch = () => {
+    setLocalQuery("");
+    dispatch(clearResult());
+  };
+
   return (
     <motion.div className={styles.page} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
       <div className={styles.container}>
-        {/* --- New: Intro / Hero copy (EN/DE via i18n) --- */}
+        {/* --- Intro / Hero (можно удалить при желании) --- */}
         <section className={styles.intro ?? ""} style={{ margin: "16px 0" }}>
           <h1 style={{ margin: 0 }}>{t("main.title")}</h1>
           <p style={{ opacity: 0.9 }}>{t("main.subtitle")}</p>
@@ -83,12 +105,14 @@ export const Home = () => {
             {t("homeHero.frontendOnly")}
           </p>
         </section>
+
         <div className={styles.topBar}>
           <CryptoMarquee />
         </div>
 
         <header className={styles.hero} />
 
+        {/* ===== Новости + правая колонка (статус рынка / топ-гэйнеры) ===== */}
         <section className={styles.headerGrid}>
           <div className={styles.newsCol}>
             <NewsMini />
@@ -97,6 +121,44 @@ export const Home = () => {
             {mkt.isOpen ? <TopGainers /> : <MarketClosedCard />}
           </aside>
         </section>
+
+        {/* ======== SEARCH BAR (перенесен сюда) ======== */}
+        <form className={styles.searchBar} onSubmit={onSubmitSearch}>
+          <input
+            className={styles.searchInput}
+            type="text"
+            placeholder="Search by ticker or company… (e.g. AAPL, NVIDIA)"
+            value={localQuery}
+            onChange={(e) => setLocalQuery(e.target.value)}
+          />
+          <button className={styles.searchBtn} type="submit" disabled={search.status === "loading"}>
+            {search.status === "loading" ? "Searching…" : "Search"}
+          </button>
+          {search.query && (
+            <button type="button" className={styles.clearBtn} onClick={onClearSearch} aria-label="Clear search">
+              ×
+            </button>
+          )}
+        </form>
+
+        {/* ======== SEARCH RESULT ======== */}
+        {(search.result || search.notFound || search.error) && (
+          <section className={styles.searchResultSection}>
+            {search.result && (
+              <div className={styles.searchResultCard}>
+                <StockCard stock={search.result} />
+              </div>
+            )}
+
+            {search.notFound && !search.result && (
+              <div className={styles.searchNotFound}>Ticker not found on Finnhub.</div>
+            )}
+
+            {search.error && !search.result && !search.notFound && (
+              <div className={styles.searchError}>{search.error}</div>
+            )}
+          </section>
+        )}
 
         {status === "loading" && items.length === 0 && (
           <div className={styles.skeletonWrap}>
